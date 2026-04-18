@@ -1,0 +1,153 @@
+:root {
+  --bg: #0d0f0e;
+  --surface: #141716;
+  --surface2: #1c1f1d;
+  --border: #2a2e2c;
+  --border2: #363b38;
+  --text: #e8ece9;
+  --muted: #6b7570;
+  --muted2: #4a504d;
+  --green: #e07a35;
+}
+
+body.login {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Barlow', sans-serif;
+  position: relative;
+}
+
+body.login::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0.35;
+}
+
+/* Hide default WP logo image */
+body.login h1 a {
+  display: none !important;
+}
+
+/* Custom Text Logo */
+.mgt-login-logo {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700;
+  font-size: 2.2rem;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: #ffffff;
+  line-height: 1;
+  text-align: center;
+  margin-bottom: 2rem;
+  padding-top: 5vh;
+}
+.mgt-login-logo span {
+  color: var(--green);
+}
+.mgt-login-sub {
+  font-size: 0.85rem;
+  color: var(--muted);
+  text-align: center;
+  margin-top: 0.5rem;
+}
+
+/* Form Styles */
+body.login #login {
+  padding: 0;
+  margin: auto;
+  width: 100%;
+  max-width: 420px;
+  position: relative;
+  z-index: 100;
+  padding-top: 4vh;
+}
+
+body.login #loginform, body.login #lostpasswordform {
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  padding: 2rem;
+  box-shadow: none;
+  border-radius: 0;
+}
+
+body.login label {
+  font-size: .62rem;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: .35rem;
+}
+
+body.login input[type="text"], 
+body.login input[type="password"], 
+body.login input[type="email"] {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border2);
+  color: var(--text);
+  padding: .55rem .75rem;
+  font-family: 'Barlow', sans-serif;
+  font-size: .85rem;
+  outline: none;
+  transition: border-color .15s;
+  box-shadow: none;
+  border-radius: 0;
+  margin-bottom: 1rem;
+}
+
+body.login input[type="text"]:focus, 
+body.login input[type="password"]:focus, 
+body.login input[type="email"]:focus {
+  border-color: var(--green);
+  box-shadow: none;
+}
+
+body.login .button-primary {
+  width: 100%;
+  background: var(--green);
+  color: #000;
+  border: none;
+  padding: .65rem 1rem;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: .82rem;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: opacity .15s;
+  border-radius: 0;
+  box-shadow: none;
+  text-shadow: none;
+  margin-top: 1rem;
+}
+
+body.login .button-primary:hover {
+  background: var(--green);
+  opacity: .85;
+  color: #000;
+}
+
+/* Links */
+body.login #nav a, body.login #backtoblog a {
+  color: var(--muted);
+  text-decoration: none;
+  transition: color .15s;
+}
+body.login #nav a:hover, body.login #backtoblog a:hover {
+  color: var(--green);
+}
+
+/* Messages */
+body.login .message, body.login #login_error {
+  background: var(--surface2);
+  border-left: 4px solid var(--green);
+  color: var(--text);
+  box-shadow: none;
+}
+body.login #login_error {
+  border-left-color: var(--red);
+}
