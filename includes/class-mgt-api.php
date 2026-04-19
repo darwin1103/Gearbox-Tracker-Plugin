@@ -25,7 +25,20 @@ class MGT_API {
 			),
 		) );
 
+		register_rest_route( $namespace, '/jobs/next-id', array(
+			array(
+				'methods'             => WP_REST_Server::READABLE,
+				'callback'            => array( __CLASS__, 'get_next_wo_id' ),
+				'permission_callback' => array( __CLASS__, 'check_admin_permission' ),
+			),
+		) );
+
 		register_rest_route( $namespace, '/jobs/(?P<id>\d+)', array(
+			array(
+				'methods'             => WP_REST_Server::READABLE,
+				'callback'            => array( __CLASS__, 'get_job' ),
+				'permission_callback' => array( __CLASS__, 'check_permission' ),
+			),
 			array(
 				'methods'             => WP_REST_Server::EDITABLE,
 				'callback'            => array( __CLASS__, 'update_job' ),
@@ -127,7 +140,6 @@ class MGT_API {
 		);
 
 		if ( ! $is_admin ) {
-			// Get job IDs linked to this customer
 			$linked_jobs = get_user_meta( $user_id, '_linked_jobs', true );
 			if ( empty( $linked_jobs ) ) {
 				return rest_ensure_response( array() );
@@ -136,13 +148,39 @@ class MGT_API {
 		}
 
 		$jobs = get_posts( $args );
-		$data = array();
 
+		// Prime the post meta cache in a single query (eliminates N+1)
+		$post_ids = wp_list_pluck( $jobs, 'ID' );
+		if ( ! empty( $post_ids ) ) {
+			update_meta_cache( 'post', $post_ids );
+		}
+
+		$data = array();
 		foreach ( $jobs as $job ) {
-			$data[] = self::format_job( $job->ID );
+			$data[] = self::format_job_light( $job->ID );
 		}
 
 		return rest_ensure_response( $data );
+	}
+
+	public static function get_job( $request ) {
+		$post_id = (int) $request['id'];
+		$post = get_post( $post_id );
+
+		if ( ! $post || 'gearbox_job' !== $post->post_type ) {
+			return new WP_Error( 'not_found', 'Work order not found', array( 'status' => 404 ) );
+		}
+
+		// Customers can only access their own linked jobs
+		if ( ! self::check_admin_permission() ) {
+			$user_id = get_current_user_id();
+			$linked_jobs = get_user_meta( $user_id, '_linked_jobs', true );
+			if ( empty( $linked_jobs ) || ! in_array( $post_id, array_map( 'intval', (array) $linked_jobs ), true ) ) {
+				return new WP_Error( 'forbidden', 'Access denied', array( 'status' => 403 ) );
+			}
+		}
+
+		return rest_ensure_response( self::format_job( $post_id ) );
 	}
 
 	public static function create_job( $request ) {
@@ -158,14 +196,17 @@ class MGT_API {
 			return new WP_Error( 'cant_create', 'Could not create job', array( 'status' => 500 ) );
 		}
 
-		update_post_meta( $post_id, '_wo_id', sanitize_text_field( $params['id'] ) );
+		// Auto-generate WO number: WO-YYYY-NNN
+		$wo_id = self::generate_wo_id();
+		update_post_meta( $post_id, '_wo_id', $wo_id );
 		update_post_meta( $post_id, '_customer', sanitize_text_field( $params['customer'] ?? '' ) );
 		update_post_meta( $post_id, '_tech', sanitize_text_field( $params['tech'] ) );
 		update_post_meta( $post_id, '_priority', sanitize_text_field( $params['priority'] ) );
 		update_post_meta( $post_id, '_date_in', sanitize_text_field( $params['dateIn'] ) );
 		update_post_meta( $post_id, '_eta', sanitize_text_field( $params['eta'] ) );
-		update_post_meta( $post_id, '_failure', sanitize_text_field( $params['failure'] ) );
+		update_post_meta( $post_id, '_failure', sanitize_text_field( $params['failure'] ?? '' ) );
 		update_post_meta( $post_id, '_stage_index', 0 );
+		update_post_meta( $post_id, '_archived', 0 );
 		update_post_meta( $post_id, '_checklist', wp_json_encode( $params['checklist'] ) );
 		update_post_meta( $post_id, '_notes', wp_json_encode( array() ) );
 
@@ -176,6 +217,36 @@ class MGT_API {
 		self::sync_job_customer_link( $post_id, $linked_customer_ids );
 
 		return rest_ensure_response( self::format_job( $post_id ) );
+	}
+
+	/**
+	 * Generate a sequential WO ID in format WO-YYYY-NNN.
+	 * Counter resets each year.
+	 */
+	private static function generate_wo_id() {
+		$current_year = (int) date( 'Y' );
+		$counter_data = get_option( 'mgt_wo_counter', array( 'year' => $current_year, 'count' => 0 ) );
+
+		if ( (int) $counter_data['year'] !== $current_year ) {
+			$counter_data = array( 'year' => $current_year, 'count' => 0 );
+		}
+
+		$counter_data['count']++;
+		update_option( 'mgt_wo_counter', $counter_data );
+
+		return sprintf( 'WO-%d-%03d', $current_year, $counter_data['count'] );
+	}
+
+	public static function get_next_wo_id( $request ) {
+		$current_year = (int) date( 'Y' );
+		$counter_data = get_option( 'mgt_wo_counter', array( 'year' => $current_year, 'count' => 0 ) );
+
+		if ( (int) $counter_data['year'] !== $current_year ) {
+			$counter_data = array( 'year' => $current_year, 'count' => 0 );
+		}
+
+		$next_count = $counter_data['count'] + 1;
+		return rest_ensure_response( array( 'next_id' => sprintf( 'WO-%d-%03d', $current_year, $next_count ) ) );
 	}
 
 	public static function update_job( $request ) {
@@ -198,6 +269,11 @@ class MGT_API {
 				if ( $field === 'stageIndex' ) $meta_key = '_stage_index';
 				update_post_meta( $post_id, $meta_key, sanitize_text_field( $params[$field] ) );
 			}
+		}
+
+		// Handle archived toggle
+		if ( isset( $params['archived'] ) ) {
+			update_post_meta( $post_id, '_archived', $params['archived'] ? 1 : 0 );
 		}
 
 		$new_stage = (int) get_post_meta( $post_id, '_stage_index', true );
@@ -538,10 +614,31 @@ class MGT_API {
 		}
 	}
 
-	private static function format_job( $post_id ) {
+	/**
+	 * Lightweight job format for list views — no checklist, notes, or attachments.
+	 * Progress is calculated server-side to avoid sending the full checklist.
+	 */
+	private static function format_job_light( $post_id ) {
 		$post = get_post( $post_id );
-		$checklist = get_post_meta( $post_id, '_checklist', true );
-		$notes = get_post_meta( $post_id, '_notes', true );
+		$checklist_raw = get_post_meta( $post_id, '_checklist', true );
+		$checklist = ! empty( $checklist_raw ) ? json_decode( $checklist_raw, true ) : array();
+
+		$total = 0;
+		$done  = 0;
+		if ( is_array( $checklist ) ) {
+			foreach ( $checklist as $group ) {
+				if ( isset( $group['items'] ) && is_array( $group['items'] ) ) {
+					foreach ( $group['items'] as $item ) {
+						$total++;
+						if ( ! empty( $item['done'] ) ) {
+							$done++;
+						}
+					}
+				}
+			}
+		}
+		$progress = $total === 0 ? 0 : (int) round( ( $done / $total ) * 100 );
+
 		$linked_customers = get_post_meta( $post_id, '_linked_customers', true );
 		if ( ! is_array( $linked_customers ) ) $linked_customers = array();
 
@@ -556,9 +653,57 @@ class MGT_API {
 			'eta'             => get_post_meta( $post_id, '_eta', true ),
 			'failure'         => get_post_meta( $post_id, '_failure', true ),
 			'stageIndex'      => (int) get_post_meta( $post_id, '_stage_index', true ),
-			'checklist'       => ! empty( $checklist ) ? json_decode( $checklist, true ) : array(),
-			'notes'           => ! empty( $notes ) ? json_decode( $notes, true ) : array(),
+			'progress'        => $progress,
 			'linkedCustomers' => $linked_customers,
+			'archived'        => (bool) get_post_meta( $post_id, '_archived', true ),
+		);
+	}
+
+	/**
+	 * Full job format for detail view — includes checklist, notes, attachments, and progress.
+	 */
+	private static function format_job( $post_id ) {
+		$post = get_post( $post_id );
+		$checklist_raw = get_post_meta( $post_id, '_checklist', true );
+		$notes_raw     = get_post_meta( $post_id, '_notes', true );
+		$checklist     = ! empty( $checklist_raw ) ? json_decode( $checklist_raw, true ) : array();
+		$notes         = ! empty( $notes_raw ) ? json_decode( $notes_raw, true ) : array();
+
+		$total = 0;
+		$done  = 0;
+		if ( is_array( $checklist ) ) {
+			foreach ( $checklist as $group ) {
+				if ( isset( $group['items'] ) && is_array( $group['items'] ) ) {
+					foreach ( $group['items'] as $item ) {
+						$total++;
+						if ( ! empty( $item['done'] ) ) {
+							$done++;
+						}
+					}
+				}
+			}
+		}
+		$progress = $total === 0 ? 0 : (int) round( ( $done / $total ) * 100 );
+
+		$linked_customers = get_post_meta( $post_id, '_linked_customers', true );
+		if ( ! is_array( $linked_customers ) ) $linked_customers = array();
+
+		return array(
+			'db_id'           => $post_id,
+			'id'              => get_post_meta( $post_id, '_wo_id', true ),
+			'desc'            => $post->post_title,
+			'customer'        => get_post_meta( $post_id, '_customer', true ),
+			'tech'            => get_post_meta( $post_id, '_tech', true ),
+			'priority'        => get_post_meta( $post_id, '_priority', true ),
+			'dateIn'          => get_post_meta( $post_id, '_date_in', true ),
+			'eta'             => get_post_meta( $post_id, '_eta', true ),
+			'failure'         => get_post_meta( $post_id, '_failure', true ),
+			'stageIndex'      => (int) get_post_meta( $post_id, '_stage_index', true ),
+			'progress'        => $progress,
+			'checklist'       => $checklist,
+			'notes'           => $notes,
+			'linkedCustomers' => $linked_customers,
+			'archived'        => (bool) get_post_meta( $post_id, '_archived', true ),
 			'photos'          => self::get_attachments_by_mime( $post_id, 'image' ),
 			'pdfs'            => self::get_attachments_by_mime( $post_id, 'application/pdf' ),
 		);

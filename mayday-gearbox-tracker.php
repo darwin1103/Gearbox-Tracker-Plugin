@@ -3,7 +3,7 @@
  * Plugin Name: Mayday Gearbox Tracker
  * Description: A single-page application portal for managing gearbox repair work orders and customer tracking.
  * Version: 1.0.0
- * Author: Mayday Gearbox
+ * Author: Darwin A
  * Text Domain: mayday-gearbox-tracker
  */
 

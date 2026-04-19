@@ -1,10 +1,14 @@
 const MGT = {
     jobs: [],
     customers: [],
+    jobDetails: {},
     activeJobId: null,
     adminTab: 'jobs',
     linkingJobDbId: null,
     linkingEmail: null,
+    sidebarSearch: '',
+    sidebarFilter: 'all',
+    showArchived: false,
     
     // Constants copied from original
     STAGES: [
@@ -96,7 +100,17 @@ const MGT = {
                     <aside class="sidebar">
                         <div class="sidebar-header">
                             <span class="sidebar-label">Work Orders</span>
-                            <button class="btn-add" onclick="MGT.openModal('newJobModal')">+ New Job</button>
+                            <button class="btn-add" onclick="MGT.openNewJobModal()">+ New Job</button>
+                        </div>
+                        <div class="sidebar-filters">
+                            <input type="text" class="sidebar-search" id="sidebarSearch" placeholder="Search WO, description, customer..." oninput="MGT.sidebarSearch=this.value;MGT.renderSidebar()"/>
+                            <select class="sidebar-stage-filter" id="sidebarStageFilter" onchange="MGT.sidebarFilter=this.value;MGT.renderSidebar()">
+                                <option value="all">All Stages</option>
+                                ${this.STAGES.map(s => `<option value="${s.key}">${s.label}</option>`).join('')}
+                            </select>
+                            <div class="sidebar-toggle-row">
+                                <label><input type="checkbox" id="sidebarShowArchived" onchange="MGT.showArchived=this.checked;MGT.renderSidebar()" style="accent-color:var(--green);"/> Show Archived</label>
+                            </div>
                         </div>
                         <div class="job-list" id="jobList"></div>
                     </aside>
@@ -153,8 +167,8 @@ const MGT = {
                 <div class="modal">
                     <div class="modal-title">New Work Order</div>
                     <div class="form-row">
-                        <div class="form-group"><label class="form-label">Job / WO Number</label><input class="form-input" id="f-id" placeholder="e.g. WO-2024-041"/></div>
-                        <div class="form-group"><label class="form-label">Priority</label><select class="form-select" id="f-priority"><option>Normal</option><option>Urgent</option><option>Rush</option></select></div>
+                        <div class="form-group"><label class="form-label">Job / WO Number</label><input class="form-input" id="f-id" readonly disabled style="color:var(--muted);background:var(--surface2);" placeholder="Loading..."/></div>
+                        <div class="form-group"><label class="form-label">Priority</label><select class="form-select" id="f-priority"><option value="Low">Low</option><option value="Normal" selected>Normal</option><option value="High">High</option></select></div>
                     </div>
                     <div class="form-row full"><div class="form-group"><label class="form-label">Gearbox Description</label><input class="form-input" id="f-desc" placeholder="e.g. Flender H3SH helical, 250kW"/></div></div>
                     <div class="form-row">
@@ -230,6 +244,21 @@ const MGT = {
                     <button class="btn btn-primary" onclick="MGT.saveLinkUserJobs()">Save Links</button>
                     </div>
                 </div>
+            </div>
+
+            <div class="modal-overlay" id="editNoteModal">
+                <div class="modal">
+                    <div class="modal-title">Edit Update</div>
+                    <input type="hidden" id="editNoteIndex" value=""/>
+                    <div class="form-group"><label class="form-label">Update Text</label><textarea class="form-input" id="editNoteText" rows="3" style="resize:vertical;"></textarea></div>
+                    <div class="form-group">
+                        <label class="form-label">Attachments</label>
+                        <div id="editNoteAttachments" style="display:flex;flex-direction:column;gap:.3rem;"></div>
+                    </div>
+                    <div class="modal-actions">
+                        <button class="btn" onclick="MGT.closeModal('editNoteModal')">Cancel</button>
+                        <button class="btn btn-primary" onclick="MGT.saveEditNote()">Save Changes</button>
+                    </div>
                 </div>
             </div>
             
@@ -259,7 +288,7 @@ const MGT = {
         }
     },
 
-    switchAdminTab(tab) {
+    async switchAdminTab(tab) {
         this.adminTab = tab;
         // Reset mobile detail view when switching tabs
         document.getElementById('mgt-root').classList.remove('mobile-detail');
@@ -269,7 +298,13 @@ const MGT = {
         document.getElementById('adminCustomersView').style.display = tab === 'customers' ? 'block' : 'none';
         document.getElementById('adminSettingsView').style.display = tab === 'settings' ? 'block' : 'none';
         if (tab === 'customers') this.renderCustomerTable();
-        if (tab === 'jobs') { this.renderSidebar(); this.updateStats(); if (this.activeJobId) this.renderDetail(); }
+        if (tab === 'jobs') {
+            this.renderSidebar(); this.updateStats();
+            if (this.activeJobId) {
+                if (!this.jobDetails[this.activeJobId]) await this.loadJobDetail(this.activeJobId);
+                this.renderDetail();
+            }
+        }
         if (tab === 'settings') this.loadEmailSettings();
     },
 
@@ -295,6 +330,19 @@ const MGT = {
         return m[this.STAGES[Math.min(job.stageIndex, this.STAGES.length-1)].key] || 'badge-intake';
     },
     openModal(id) { document.getElementById(id).classList.add('open'); },
+    async openNewJobModal() {
+        this.openModal('newJobModal');
+        const idInput = document.getElementById('f-id');
+        if (idInput) {
+            idInput.value = 'Loading...';
+            try {
+                const res = await this.api('jobs/next-id', 'GET');
+                idInput.value = res.next_id + ' (Auto)';
+            } catch (e) {
+                idInput.value = 'Auto-generated';
+            }
+        }
+    },
     closeModal(id) { document.getElementById(id).classList.remove('open'); },
     showToast(type, title, msg) {
         const wrap = document.getElementById('toastWrap');
@@ -313,11 +361,33 @@ const MGT = {
         const list = document.getElementById('jobList');
         if (!list) return;
         if (this.jobs.length === 0) { list.innerHTML = '<div style="padding:1.5rem 1rem;color:var(--muted);font-size:.75rem;text-align:center">No work orders yet</div>'; return; }
-        list.innerHTML = this.jobs.map(j => {
-            const pct = this.jobProgress(j);
+        
+        // Apply filters
+        let filtered = this.jobs;
+        if (!this.showArchived) {
+            filtered = filtered.filter(j => !j.archived);
+        }
+        if (this.sidebarFilter !== 'all') {
+            const stageIdx = this.STAGES.findIndex(s => s.key === this.sidebarFilter);
+            if (stageIdx >= 0) filtered = filtered.filter(j => j.stageIndex === stageIdx);
+        }
+        if (this.sidebarSearch) {
+            const q = this.sidebarSearch.toLowerCase();
+            filtered = filtered.filter(j => 
+                (j.id || '').toLowerCase().includes(q) || 
+                (j.desc || '').toLowerCase().includes(q) || 
+                (j.customer || '').toLowerCase().includes(q) ||
+                (j.tech || '').toLowerCase().includes(q)
+            );
+        }
+        if (filtered.length === 0) { list.innerHTML = '<div style="padding:1.5rem 1rem;color:var(--muted);font-size:.75rem;text-align:center">No matching work orders</div>'; return; }
+
+        list.innerHTML = filtered.map(j => {
+            const pct = j.progress || 0;
             const stageName = this.STAGES[Math.min(j.stageIndex, this.STAGES.length-1)].label;
-            return `<div class="job-item ${j.db_id === this.activeJobId ? 'active' : ''}" onclick="MGT.selectJob(${j.db_id})">
-                <div class="job-item-top"><div class="job-id">${this.esc(j.id)}</div><div class="status-badge ${this.badgeClass(j)}">${stageName}</div></div>
+            const archivedBadge = j.archived ? '<span class="badge-archived">Archived</span>' : '';
+            return `<div class="job-item ${j.db_id === this.activeJobId ? 'active' : ''} ${j.archived ? 'archived' : ''}" onclick="MGT.selectJob(${j.db_id})">
+                <div class="job-item-top"><div class="job-id">${this.esc(j.id)}</div><div class="status-badge ${this.badgeClass(j)}">${stageName}</div>${archivedBadge}</div>
                 <div class="job-desc">${this.esc(j.desc)}</div>
                 <div class="job-progress-bar"><div class="job-progress-fill" style="width:${pct}%"></div></div>
             </div>`;
@@ -329,20 +399,49 @@ const MGT = {
         document.getElementById('stat-complete').textContent = this.jobs.filter(j => j.stageIndex >= this.STAGES.length-1).length;
     },
 
-    selectJob(db_id) {
+    async selectJob(db_id) {
         this.activeJobId = db_id;
         this.renderSidebar();
-        this.renderDetail();
-        // Mobile: show detail panel
         document.getElementById('mgt-root').classList.add('mobile-detail');
+        // Show loading if detail not cached
+        const main = document.getElementById('mainPanel');
+        if (main && !this.jobDetails[db_id]) {
+            main.innerHTML = '<div class="empty-state"><div class="empty-icon">⏳</div><p>Loading work order...</p></div>';
+        }
+        await this.loadJobDetail(db_id);
+        if (this.activeJobId === db_id) this.renderDetail();
     },
 
     backToList() {
         document.getElementById('mgt-root').classList.remove('mobile-detail');
     },
 
+    // ── LAZY LOADING & CACHE ──
+    async loadJobDetail(db_id) {
+        if (this.jobDetails[db_id]) return this.jobDetails[db_id];
+        const detail = await this.api(`jobs/${db_id}`, 'GET');
+        this.jobDetails[db_id] = detail;
+        return detail;
+    },
+
+    getActiveJob() {
+        return this.jobDetails[this.activeJobId] || null;
+    },
+
+    syncToList(db_id) {
+        const detail = this.jobDetails[db_id];
+        if (!detail) return;
+        const listJob = this.jobs.find(j => j.db_id === db_id);
+        if (!listJob) return;
+        listJob.stageIndex = detail.stageIndex;
+        listJob.progress = this.jobProgress(detail);
+        listJob.eta = detail.eta;
+        listJob.failure = detail.failure;
+        listJob.linkedCustomers = detail.linkedCustomers;
+        listJob.archived = detail.archived;
+    },
+
     async createJob() {
-        const id = document.getElementById('f-id').value.trim();
         const desc = document.getElementById('f-desc').value.trim();
         const customer = document.getElementById('f-customer').value.trim();
         const tech = document.getElementById('f-tech').value.trim();
@@ -352,7 +451,7 @@ const MGT = {
         const failure = document.getElementById('f-failure').value.trim();
         const linkedCustomerId = document.getElementById('f-customer-id') ? parseInt(document.getElementById('f-customer-id').value) || null : null;
 
-        if (!id || !desc || !tech || !priority || !dateIn || !eta || !failure) {
+        if (!desc || !tech || !priority || !dateIn || !eta) {
             this.showToast('error', 'Required Fields', 'Please fill in all required fields to create a work order.');
             return;
         }
@@ -363,12 +462,19 @@ const MGT = {
         }));
         
         const payload = {
-            id, desc, customer, tech, priority, dateIn, eta, failure, checklist,
+            desc, customer, tech, priority, dateIn, eta, failure, checklist,
             linkedCustomers: linkedCustomerId ? [linkedCustomerId] : []
         };
 
         const newJob = await this.api('jobs', 'POST', payload);
-        this.jobs.unshift(newJob);
+        // Cache the full detail and add light version to list
+        this.jobDetails[newJob.db_id] = newJob;
+        this.jobs.unshift({
+            db_id: newJob.db_id, id: newJob.id, desc: newJob.desc, customer: newJob.customer,
+            tech: newJob.tech, priority: newJob.priority, dateIn: newJob.dateIn, eta: newJob.eta,
+            stageIndex: newJob.stageIndex, progress: 0, linkedCustomers: newJob.linkedCustomers,
+            failure: newJob.failure
+        });
         this.closeModal('newJobModal');
         // Clear customer search fields
         if (document.getElementById('f-customer-search')) document.getElementById('f-customer-search').value = '';
@@ -405,13 +511,12 @@ const MGT = {
     renderDetail() {
         const main = document.getElementById('mainPanel');
         if (!main) return;
-        const job = this.jobs.find(j => j.db_id === this.activeJobId);
+        const job = this.getActiveJob();
         if (!job) { main.innerHTML = '<div class="empty-state"><div class="empty-icon">⚙</div><p>Select a work order</p></div>'; return; }
         
         const backBtn = '<button class="mobile-back-btn" onclick="MGT.backToList()">‹ Back to List</button>';
         
         const pct = this.jobProgress(job);
-        const priorityColor = job.priority==='Rush'?'var(--red)':job.priority==='Urgent'?'var(--yellow)':'var(--muted)';
 
         const stagesHTML = this.STAGES.map((s,i) => `
             <div class="stage ${i < job.stageIndex ? 'done' : ''} ${i === job.stageIndex ? 'current' : ''}">
@@ -438,20 +543,37 @@ const MGT = {
             ? '<div style="color:var(--muted2);font-size:.78rem;padding:.5rem">No updates yet.</div>'
             : [...job.notes].reverse().map((n, ni) => {
                 const galleryId = `gallery_${ni}`;
-                const attHTML = this.renderGallery(n.attachments || [], galleryId);
+            const realLen = (job.notes || []).length;
+            const attHTML = this.renderGallery(n.attachments || [], galleryId);
+                const realIndex = realLen - 1 - ni;
+                const noteActions = `<span class="note-actions">
+                    <button class="note-action-btn" onclick="MGT.editNote(${realIndex})">✏ Edit</button>
+                    <button class="note-action-btn delete" onclick="MGT.deleteNote(${realIndex})">🗑</button>
+                </span>`;
                 return `
             <div style="padding:.65rem 0; border-bottom:1px solid var(--border);">
                 <div style="font-size:.65rem; color:var(--muted); margin-bottom:.3rem; font-family:'Barlow Condensed',sans-serif; letter-spacing:.06em;">${this.esc(n.tech || 'Tech')} &middot; ${this.fmtDate(n.ts)} ${n.customerVisible ? '<span style="font-size:.58rem; padding:.1rem .4rem; background:var(--blue-dim); color:var(--blue); border:1px solid var(--blue); margin-left:.4rem;">Visible to customer</span>' : '<span style="font-size:.58rem; padding:.1rem .4rem; background:var(--surface2); color:var(--muted); border:1px solid var(--border); margin-left:.4rem;">Internal</span>'}
+                ${noteActions}
                 </div>
                 <div style="font-size:.8rem;line-height:1.5;">${this.esc(n.text)}</div>
                 ${attHTML}
             </div>`;
             }).join('');
 
+        const p = job.priority || 'Normal';
+        const priorityColor = (p === 'Rush' || p === 'High') ? 'var(--red)' : (p === 'Urgent' ? 'var(--yellow)' : 'var(--muted)');
+        const prioritySelect = `
+            <select onchange="MGT.updateJobField('priority', this.value)" style="background:var(--surface2);border:1px solid var(--border);color:${priorityColor};font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:.85rem;padding:.1rem .3rem;outline:none;border-radius:3px;cursor:pointer;">
+                <option value="Low" ${p==='Low'?'selected':''} style="background:var(--surface2);color:var(--text)">Low</option>
+                <option value="Normal" ${p==='Normal'?'selected':''} style="background:var(--surface2);color:var(--text)">Normal</option>
+                <option value="High" ${p==='High'?'selected':''} style="background:var(--surface2);color:var(--text)">High</option>
+            </select>
+        `;
+
         main.innerHTML = `${backBtn}<div class="job-detail">
             <div class="detail-header">
                 <div>
-                    <div class="detail-id">Work Order &middot; ${this.esc(job.id)} &middot; <span style="color:${priorityColor}">${this.esc(job.priority)}</span></div>
+                    <div class="detail-id">Work Order &middot; ${this.esc(job.id)} &middot; ${prioritySelect}</div>
                     <div class="detail-title">${this.esc(job.desc)}</div>
                     <div style="margin-top:.5rem;font-size:.8rem;color:var(--muted)">
                         ${job.customer ? this.esc(job.customer) + ' &middot; ' : ''}${job.tech ? 'Tech: ' + this.esc(job.tech) : ''} &middot; Progress: <strong style="color:var(--green)">${pct}%</strong>
@@ -466,6 +588,7 @@ const MGT = {
                 </div>
                 <div class="detail-actions">
                     <button class="btn" onclick="MGT.openLinkCustomersModal()">🔗 Link Customers</button>
+                    ${job.stageIndex >= this.STAGES.length - 1 ? `<button class="btn" onclick="MGT.toggleArchive(${job.db_id})">${job.archived ? '📂 Unarchive' : '📦 Archive'}</button>` : ''}
                     <button class="btn btn-danger" onclick="MGT.deleteJob(${job.db_id})">Delete</button>
                 </div>
             </div>
@@ -483,7 +606,7 @@ const MGT = {
                 <div class="info-cell"><div class="info-label">Tasks Done</div><div class="info-value">${pct}%</div></div>
                 <div class="info-cell" style="grid-column:span 2">
                     <div class="info-label">Failure / Reason for Repair</div>
-                    <textarea rows="2" onblur="MGT.updateJobField('failure', this.value)" style="width:100%;background:var(--surface2);border:1px solid var(--border2);color:var(--text);font-family:'Barlow',sans-serif;font-size:.82rem;resize:vertical;outline:none;padding:.35rem .5rem;margin-top:.3rem;" placeholder="Describe the failure...">${this.esc(job.failure || '')}</textarea>
+                    <div style="font-size:.82rem;color:var(--text);line-height:1.5;margin-top:.3rem;padding:.35rem 0;">${this.esc(job.failure || '—')}</div>
                 </div>
             </div>
 
@@ -516,10 +639,11 @@ const MGT = {
     },
 
     async setStage(i) {
-        const job = this.jobs.find(j => j.db_id === this.activeJobId);
+        const job = this.getActiveJob();
         if (!job || job.stageIndex === i) return;
         
         job.stageIndex = i;
+        this.syncToList(job.db_id);
         this.renderSidebar();
         this.updateStats();
         this.renderDetail();
@@ -529,9 +653,10 @@ const MGT = {
     },
 
     async updateJobField(field, value) {
-        const job = this.jobs.find(j => j.db_id === this.activeJobId);
+        const job = this.getActiveJob();
         if (!job) return;
         job[field] = value.trim();
+        this.syncToList(job.db_id);
         await this.api(`jobs/${job.db_id}`, 'PUT', { [field]: job[field] });
     },
 
@@ -542,7 +667,7 @@ const MGT = {
     },
 
     async toggleCheck(gi, ii) {
-        const job = this.jobs.find(j => j.db_id === this.activeJobId);
+        const job = this.getActiveJob();
         if (!job) return;
         const isGroupEnabled = job.stageIndex >= MGT.CHECKLIST_STAGE_MAP[gi].req;
         if (!isGroupEnabled) return;
@@ -565,6 +690,7 @@ const MGT = {
             this.showToast('info', 'Stage Auto-Updated', `Moved to ${this.STAGES[job.stageIndex].label}`);
         }
         
+        this.syncToList(job.db_id);
         this.renderDetail();
         this.renderSidebar();
         this.updateStats();
@@ -579,7 +705,7 @@ const MGT = {
     handleFileSelect(event) {
         const files = Array.from(event.target.files);
         if (!files.length) return;
-        const job = this.jobs.find(j => j.db_id === this.activeJobId);
+        const job = this.getActiveJob();
         if (!job) return;
 
         // Validate sizes
@@ -683,7 +809,7 @@ const MGT = {
     async postUpdate() {
         const text = document.getElementById('updateText').value.trim();
         const visible = document.getElementById('updateVisible').checked;
-        const job = this.jobs.find(j => j.db_id === this.activeJobId);
+        const job = this.getActiveJob();
         if (!job) return;
         if (!text && this.uploadedAttachments.length === 0) {
             this.showToast('error', 'Empty', 'Write a note or attach files.');
@@ -741,10 +867,86 @@ const MGT = {
         if (!confirm('Delete this work order? This cannot be undone.')) return;
         await this.api(`jobs/${db_id}`, 'DELETE');
         this.jobs = this.jobs.filter(j => j.db_id !== db_id);
+        delete this.jobDetails[db_id];
         this.activeJobId = this.jobs.length > 0 ? this.jobs[0].db_id : null;
         this.renderSidebar();
         this.updateStats();
+        if (this.activeJobId) {
+            await this.loadJobDetail(this.activeJobId);
+        }
         this.renderDetail();
+    },
+
+    async toggleArchive(db_id) {
+        const job = this.jobDetails[db_id] || this.jobs.find(j => j.db_id === db_id);
+        if (!job) return;
+        const newArchivedState = !job.archived;
+        job.archived = newArchivedState;
+        this.syncToList(db_id);
+        await this.api(`jobs/${db_id}`, 'PUT', { archived: newArchivedState });
+        this.renderSidebar();
+        this.renderDetail();
+    },
+
+    async editNote(realIndex) {
+        const job = this.getActiveJob();
+        if (!job || !job.notes[realIndex]) return;
+        
+        document.getElementById('editNoteIndex').value = realIndex;
+        document.getElementById('editNoteText').value = job.notes[realIndex].text || '';
+        
+        this.renderEditNoteAttachments(job.notes[realIndex].attachments || []);
+        this.openModal('editNoteModal');
+    },
+
+    renderEditNoteAttachments(atts) {
+        const container = document.getElementById('editNoteAttachments');
+        if (!atts || atts.length === 0) {
+            container.innerHTML = '<div style="color:var(--muted);font-size:.75rem;">No attachments.</div>';
+            return;
+        }
+        container.innerHTML = atts.map((a, i) => `
+            <div style="display:flex;justify-content:space-between;align-items:center;background:var(--surface2);padding:.3rem .5rem;border:1px solid var(--border);font-size:.75rem;border-radius:3px;">
+                <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${this.esc(a.name)}</span>
+                <button class="btn btn-danger" style="padding:.1rem .3rem;font-size:.6rem;height:auto;" onclick="MGT.removeEditNoteAttachment(${i})">Delete</button>
+            </div>
+        `).join('');
+    },
+
+    removeEditNoteAttachment(attIndex) {
+        const realIndex = parseInt(document.getElementById('editNoteIndex').value);
+        const job = this.getActiveJob();
+        if (!job || !job.notes[realIndex]) return;
+        
+        if (!confirm('Remove this attachment from the update?')) return;
+        job.notes[realIndex].attachments.splice(attIndex, 1);
+        this.renderEditNoteAttachments(job.notes[realIndex].attachments);
+    },
+
+    async saveEditNote() {
+        const realIndex = parseInt(document.getElementById('editNoteIndex').value);
+        const job = this.getActiveJob();
+        if (!job || !job.notes[realIndex]) return;
+        
+        const newText = document.getElementById('editNoteText').value.trim();
+        job.notes[realIndex].text = newText;
+        
+        await this.api(`jobs/${job.db_id}`, 'PUT', { notes: job.notes });
+        this.closeModal('editNoteModal');
+        this.renderDetail();
+        this.showToast('success', 'Updated', 'Update note modified.');
+    },
+
+    async deleteNote(realIndex) {
+        if (!confirm('Are you sure you want to delete this update?')) return;
+        
+        const job = this.getActiveJob();
+        if (!job || !job.notes[realIndex]) return;
+        
+        job.notes.splice(realIndex, 1);
+        await this.api(`jobs/${job.db_id}`, 'PUT', { notes: job.notes });
+        this.renderDetail();
+        this.showToast('success', 'Deleted', 'Update note removed.');
     },
 
     // ── CUSTOMER MANAGEMENT ──
@@ -800,7 +1002,7 @@ const MGT = {
     },
 
     openLinkCustomersModal() {
-        const job = this.jobs.find(j => j.db_id === this.activeJobId);
+        const job = this.getActiveJob();
         if(!job) return;
         this.linkingJobDbId = job.db_id;
         document.getElementById('linkJobTitle').textContent = `${job.id} — ${job.desc}`;
@@ -830,7 +1032,7 @@ const MGT = {
 
     async saveLinkCustomers() {
         const boxes = document.querySelectorAll('#linkCustomerCheckboxes input[type=checkbox]');
-        const job = this.jobs.find(j => j.db_id === this.linkingJobDbId);
+        const job = this.jobDetails[this.linkingJobDbId] || this.jobs.find(j => j.db_id === this.linkingJobDbId);
         if (!job) return;
 
         const linkedCustomers = [];
@@ -842,7 +1044,10 @@ const MGT = {
         await this.api(`jobs/${job.db_id}`, 'PUT', { linkedCustomers });
         this.closeModal('linkCustomersModal');
         this.showToast('success', 'Saved', 'Customer links updated.');
+        // Invalidate detail cache and reload
+        delete this.jobDetails[job.db_id];
         await this.loadData();
+        await this.loadJobDetail(job.db_id);
         this.renderDetail();
         this.renderSidebar();
     },
@@ -922,28 +1127,35 @@ const MGT = {
     },
 
     // ── CUSTOMER PORTAL VIEW ──
-    renderCustomerView() {
+    async renderCustomerView() {
         const container = document.getElementById('customerMainContent');
         if (this.jobs.length === 0) {
             container.innerHTML = `<div class="customer-hero"><div class="customer-hero-label">No Jobs Yet</div><div class="customer-hero-title">No work orders linked</div></div>`;
             return;
         }
 
+        // Show loading while fetching details
+        container.innerHTML = '<div style="text-align:center;padding:3rem;color:var(--muted);"><div style="font-size:2rem;margin-bottom:.5rem">⚙</div>Loading your work orders...</div>';
+
+        // Load full details for all customer jobs (typically 1-5 jobs)
+        await Promise.all(this.jobs.map(j => this.loadJobDetail(j.db_id)));
+
         container.innerHTML = `<div class="customer-hero" style="margin-bottom:1.25rem">
             <div class="customer-hero-label">Welcome back</div>
             <div class="customer-hero-title">${this.esc(mgtData.userName)}</div>
             <div style="font-size:.78rem;color:var(--muted);margin-top:.3rem">${this.jobs.length} work order(s) linked</div>
         </div>` + this.jobs.map(job => {
-            const pct = this.jobProgress(job);
-            const stageName = this.STAGES[Math.min(job.stageIndex, this.STAGES.length-1)].label;
+            const detail = this.jobDetails[job.db_id] || job;
+            const pct = detail.progress || 0;
+            const stageName = this.STAGES[Math.min(detail.stageIndex, this.STAGES.length-1)].label;
             
             const stagesHTML = this.STAGES.map((s,i) => `
-                <div class="cjc-stage ${i < job.stageIndex ? 'done' : ''} ${i === job.stageIndex ? 'current' : ''}">
-                <div class="cjc-stage-num">${i < job.stageIndex ? '✔' : String(i+1)}</div>
+                <div class="cjc-stage ${i < detail.stageIndex ? 'done' : ''} ${i === detail.stageIndex ? 'current' : ''}">
+                <div class="cjc-stage-num">${i < detail.stageIndex ? '✔' : String(i+1)}</div>
                 <div class="cjc-stage-name">${s.label}</div>
                 </div>`).join('');
 
-            const visibleUpdates = (job.notes || []).filter(n => n.customerVisible);
+            const visibleUpdates = (detail.notes || []).filter(n => n.customerVisible);
             const updatesHTML = visibleUpdates.length === 0
                 ? '<div style="color:var(--muted2);font-size:.78rem;padding:.4rem 0">No shop updates yet.</div>'
                 : [...visibleUpdates].reverse().map((n, ni) => {
@@ -960,10 +1172,10 @@ const MGT = {
             return `<div class="customer-job-card">
                 <div class="cjc-header">
                     <div>
-                        <div class="cjc-id">${this.esc(job.id)}</div>
-                        <div style="font-size:.78rem;color:var(--muted);margin-top:.2rem">${this.esc(job.desc)}</div>
+                        <div class="cjc-id">${this.esc(detail.id)}</div>
+                        <div style="font-size:.78rem;color:var(--muted);margin-top:.2rem">${this.esc(detail.desc)}</div>
                     </div>
-                    <div class="status-badge ${this.badgeClass(job)}">${stageName}</div>
+                    <div class="status-badge ${this.badgeClass(detail)}">${stageName}</div>
                 </div>
                 <div class="cjc-body">
                     <div><div class="section-heading">Repair Progress</div><div class="cjc-stage-row">${stagesHTML}</div></div>
@@ -972,8 +1184,8 @@ const MGT = {
                         <div class="progress-bar-full"><div class="progress-bar-fill" style="width:${pct}%"></div></div>
                     </div>
                     <div class="cjc-info-row" style="margin-top:1rem;">
-                        <div class="cjc-info-cell"><div class="info-label">Date In</div><div class="info-value" style="font-size:.9rem">${job.dateIn || '—'}</div></div>
-                        <div class="cjc-info-cell"><div class="info-label">Est. Complete</div><div class="info-value" style="font-size:.9rem;color:var(--green)">${job.eta || '—'}</div></div>
+                        <div class="cjc-info-cell"><div class="info-label">Date In</div><div class="info-value" style="font-size:.9rem">${detail.dateIn || '—'}</div></div>
+                        <div class="cjc-info-cell"><div class="info-label">Est. Complete</div><div class="info-value" style="font-size:.9rem;color:var(--green)">${detail.eta || '—'}</div></div>
                     </div>
                     <div style="margin-top:1rem;">
                         <div class="section-heading">Shop Updates</div>
