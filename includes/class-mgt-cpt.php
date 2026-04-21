@@ -39,7 +39,7 @@ class MGT_CPT {
 		$failure = get_post_meta( $post->ID, '_failure', true );
 		$stage_index = get_post_meta( $post->ID, '_stage_index', true );
 		
-		$stages = array( 'Intake', 'Teardown', 'Inspection', 'Parts', 'Rebuild', 'Spin Test', 'Painting', 'Complete' );
+		$stages = array( 'Intake', 'Teardown', 'Inspection', 'Parts', 'Rebuild', /* 'Spin Test', */ 'Painting', 'Complete' );
 		$stage_name = isset( $stages[$stage_index] ) ? $stages[$stage_index] : $stage_index;
 
 		echo '<div style="display:grid; grid-template-columns: 1fr 1fr; gap: 15px;">';
@@ -168,7 +168,7 @@ class MGT_CPT {
 				echo esc_html( get_post_meta( $post_id, '_wo_id', true ) );
 				break;
 			case 'stage':
-				$stages = array( 'Intake', 'Teardown', 'Inspection', 'Parts', 'Rebuild', 'Spin Test', 'Painting', 'Complete' );
+				$stages = array( 'Intake', 'Teardown', 'Inspection', 'Parts', 'Rebuild', /* 'Spin Test', */ 'Painting', 'Complete' );
 				$idx = (int) get_post_meta( $post_id, '_stage_index', true );
 				$name = isset( $stages[ $idx ] ) ? $stages[ $idx ] : $idx;
 				$color = $idx >= 7 ? '#46b450' : '#ffb900';

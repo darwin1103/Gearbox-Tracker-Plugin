@@ -25,13 +25,7 @@ class MGT_API {
 			),
 		) );
 
-		register_rest_route( $namespace, '/jobs/next-id', array(
-			array(
-				'methods'             => WP_REST_Server::READABLE,
-				'callback'            => array( __CLASS__, 'get_next_wo_id' ),
-				'permission_callback' => array( __CLASS__, 'check_admin_permission' ),
-			),
-		) );
+
 
 		register_rest_route( $namespace, '/jobs/(?P<id>\d+)', array(
 			array(
@@ -196,8 +190,8 @@ class MGT_API {
 			return new WP_Error( 'cant_create', 'Could not create job', array( 'status' => 500 ) );
 		}
 
-		// Auto-generate WO number: WO-YYYY-NNN
-		$wo_id = self::generate_wo_id();
+		// Use manual WO number provided by admin
+		$wo_id = isset( $params['wo_id'] ) ? sanitize_text_field( $params['wo_id'] ) : '';
 		update_post_meta( $post_id, '_wo_id', $wo_id );
 		update_post_meta( $post_id, '_customer', sanitize_text_field( $params['customer'] ?? '' ) );
 		update_post_meta( $post_id, '_tech', sanitize_text_field( $params['tech'] ) );
@@ -219,35 +213,7 @@ class MGT_API {
 		return rest_ensure_response( self::format_job( $post_id ) );
 	}
 
-	/**
-	 * Generate a sequential WO ID in format WO-YYYY-NNN.
-	 * Counter resets each year.
-	 */
-	private static function generate_wo_id() {
-		$current_year = (int) date( 'Y' );
-		$counter_data = get_option( 'mgt_wo_counter', array( 'year' => $current_year, 'count' => 0 ) );
 
-		if ( (int) $counter_data['year'] !== $current_year ) {
-			$counter_data = array( 'year' => $current_year, 'count' => 0 );
-		}
-
-		$counter_data['count']++;
-		update_option( 'mgt_wo_counter', $counter_data );
-
-		return sprintf( 'WO-%d-%03d', $current_year, $counter_data['count'] );
-	}
-
-	public static function get_next_wo_id( $request ) {
-		$current_year = (int) date( 'Y' );
-		$counter_data = get_option( 'mgt_wo_counter', array( 'year' => $current_year, 'count' => 0 ) );
-
-		if ( (int) $counter_data['year'] !== $current_year ) {
-			$counter_data = array( 'year' => $current_year, 'count' => 0 );
-		}
-
-		$next_count = $counter_data['count'] + 1;
-		return rest_ensure_response( array( 'next_id' => sprintf( 'WO-%d-%03d', $current_year, $next_count ) ) );
-	}
 
 	public static function update_job( $request ) {
 		$post_id = $request['id'];
@@ -510,7 +476,7 @@ class MGT_API {
 
 	public static function get_settings( $request ) {
 		$settings = get_option( 'mgt_email_settings', array() );
-		$stages = array( 'Intake', 'Teardown', 'Inspection', 'Parts', 'Rebuild', 'Spin Test', 'Painting', 'Complete' );
+		$stages = array( 'Intake', 'Teardown', 'Inspection', 'Parts', 'Rebuild', /* 'Spin Test', */ 'Painting', 'Complete' );
 		foreach ( $stages as $idx => $stage ) {
 			if ( ! isset( $settings["stage_$idx"] ) ) {
 				$settings["stage_$idx"] = true;
@@ -596,7 +562,7 @@ class MGT_API {
 			return; // Disabled in settings
 		}
 
-		$stages = array( 'Intake', 'Teardown', 'Inspection', 'Parts', 'Rebuild', 'Spin Test', 'Painting', 'Complete' );
+		$stages = array( 'Intake', 'Teardown', 'Inspection', 'Parts', 'Rebuild', /* 'Spin Test', */ 'Painting', 'Complete' );
 		$stage_name = isset( $stages[$new_stage] ) ? $stages[$new_stage] : 'Updated';
 		
 		$wo_id = get_post_meta( $post_id, '_wo_id', true );

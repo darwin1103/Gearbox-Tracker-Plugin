@@ -13,17 +13,17 @@ const MGT = {
     // Constants copied from original
     STAGES: [
         {key:'intake',label:'Intake'},{key:'teardown',label:'Teardown'},{key:'inspect',label:'Inspection'},
-        {key:'parts',label:'Parts'},{key:'rebuild',label:'Rebuild'},{key:'spintest',label:'Spin Test'},{key:'painting',label:'Painting'},{key:'complete',label:'Complete'}
+        {key:'parts',label:'Parts'},{key:'rebuild',label:'Rebuild'},/* {key:'spintest',label:'Spin Test'}, */{key:'painting',label:'Painting'},{key:'complete',label:'Complete'}
     ],
     CHECKLIST_TEMPLATE: [
         { group:'Intake & Teardown', items:['Photograph gearbox exterior & nameplate','Record serial number, ratio, mounting position','Drain and inspect oil (colour, particles, water)','Remove couplings and external components','Disassemble gearbox, label all parts','Clean all components (ultrasonic or solvent)'] },
         { group:'Inspection', items:['Inspect gear teeth for pitting, wear, scoring','Measure gear backlash and tooth contact','Inspect all bearings (replace as standard)','Inspect shafts for wear, cracks, run-out','Inspect seals, gaskets, and O-rings','Check housing for cracks or distortion','Document all findings with photos'] },
         { group:'Parts & Ordering', items:['Create parts list from inspection findings','Source bearings, seals, and consumables','Confirm customer approval for parts cost','Parts received and verified against order'] },
         { group:'Rebuild', items:['Apply correct fits/tolerances on shaft assemblies','Heat-fit bearings using induction heater','Install gears and verify tooth contact','Set correct bearing preload / end-float','Install seals and gaskets','Torque all fasteners to spec (record values)','Fill with correct grade and volume of oil'] },
-        { group:'Spin Test', items:['No-load run-in (document start-up temps)','Vibration analysis — check against baseline','Check for oil leaks under operating temp','Load test if test rig available','Final photography of completed unit'] },
+        /* { group:'Spin Test', items:['No-load run-in (document start-up temps)','Vibration analysis — check against baseline','Check for oil leaks under operating temp','Load test if test rig available','Final photography of completed unit'] }, */
         { group:'Painting', items:['Surface preparation and masking','Apply primer coat','Apply finish coat — colour match confirmed','Inspect paint finish, touch up as required','Apply ID labels and nameplate','Complete repair report / documentation','Customer sign-off obtained'] }
     ],
-    CHECKLIST_STAGE_MAP: [{req:0,adv:2},{req:2,adv:3},{req:3,adv:4},{req:4,adv:5},{req:5,adv:6},{req:6,adv:7}],
+    CHECKLIST_STAGE_MAP: [{req:0,adv:2},{req:2,adv:3},{req:3,adv:4},{req:4,adv:5}, /* {req:5,adv:6}, */ {req:5,adv:6}],
 
     init() {
         if (!window.mgtData) return;
@@ -167,7 +167,7 @@ const MGT = {
                 <div class="modal">
                     <div class="modal-title">New Work Order</div>
                     <div class="form-row">
-                        <div class="form-group"><label class="form-label">Job / WO Number</label><input class="form-input" id="f-id" readonly disabled style="color:var(--muted);background:var(--surface2);" placeholder="Loading..."/></div>
+                        <div class="form-group"><label class="form-label">Job / WO Number</label><input class="form-input" id="f-id" placeholder="e.g. WO-2026-001"/></div>
                         <div class="form-group"><label class="form-label">Priority</label><select class="form-select" id="f-priority"><option value="Low">Low</option><option value="Normal" selected>Normal</option><option value="High">High</option></select></div>
                     </div>
                     <div class="form-row full"><div class="form-group"><label class="form-label">Gearbox Description</label><input class="form-input" id="f-desc" placeholder="e.g. Flender H3SH helical, 250kW"/></div></div>
@@ -334,13 +334,7 @@ const MGT = {
         this.openModal('newJobModal');
         const idInput = document.getElementById('f-id');
         if (idInput) {
-            idInput.value = 'Loading...';
-            try {
-                const res = await this.api('jobs/next-id', 'GET');
-                idInput.value = res.next_id + ' (Auto)';
-            } catch (e) {
-                idInput.value = 'Auto-generated';
-            }
+            idInput.value = '';
         }
     },
     closeModal(id) { document.getElementById(id).classList.remove('open'); },
@@ -420,6 +414,16 @@ const MGT = {
     async loadJobDetail(db_id) {
         if (this.jobDetails[db_id]) return this.jobDetails[db_id];
         const detail = await this.api(`jobs/${db_id}`, 'GET');
+        
+        if (detail.checklist && Array.isArray(detail.checklist)) {
+            const spinTestIdx = detail.checklist.findIndex(g => g.group === 'Spin Test');
+            if (spinTestIdx >= 0) {
+                detail.checklist.splice(spinTestIdx, 1);
+                // Silently update the DB to remove the orphaned checklist group
+                this.api(`jobs/${db_id}`, 'PUT', { checklist: detail.checklist }).catch(e=>console.error(e));
+            }
+        }
+
         this.jobDetails[db_id] = detail;
         return detail;
     },
@@ -442,6 +446,7 @@ const MGT = {
     },
 
     async createJob() {
+        const id = document.getElementById('f-id').value.trim();
         const desc = document.getElementById('f-desc').value.trim();
         const customer = document.getElementById('f-customer').value.trim();
         const tech = document.getElementById('f-tech').value.trim();
@@ -451,7 +456,7 @@ const MGT = {
         const failure = document.getElementById('f-failure').value.trim();
         const linkedCustomerId = document.getElementById('f-customer-id') ? parseInt(document.getElementById('f-customer-id').value) || null : null;
 
-        if (!desc || !tech || !priority || !dateIn || !eta) {
+        if (!id || !desc || !tech || !priority || !dateIn || !eta) {
             this.showToast('error', 'Required Fields', 'Please fill in all required fields to create a work order.');
             return;
         }
@@ -462,7 +467,7 @@ const MGT = {
         }));
         
         const payload = {
-            desc, customer, tech, priority, dateIn, eta, failure, checklist,
+            wo_id: id, desc, customer, tech, priority, dateIn, eta, failure, checklist,
             linkedCustomers: linkedCustomerId ? [linkedCustomerId] : []
         };
 
@@ -519,7 +524,7 @@ const MGT = {
         const pct = this.jobProgress(job);
 
         const stagesHTML = this.STAGES.map((s,i) => `
-            <div class="stage ${i < job.stageIndex ? 'done' : ''} ${i === job.stageIndex ? 'current' : ''}">
+            <div class="stage ${i < job.stageIndex ? 'done' : ''} ${i === job.stageIndex ? 'current' : ''}" onclick="MGT.setStage(${i})" style="cursor:pointer;" title="Move to ${s.label} stage">
             ${i < job.stageIndex ? '<span class="stage-check">✔</span>' : ''}
             <div class="stage-num">${String(i+1).padStart(2,'0')}</div>
             <div class="stage-name">${s.label}</div>
@@ -643,12 +648,27 @@ const MGT = {
         if (!job || job.stageIndex === i) return;
         
         job.stageIndex = i;
+
+        if (job.checklist) {
+            job.checklist.forEach((g, gi) => {
+                if (i >= MGT.CHECKLIST_STAGE_MAP[gi].adv) {
+                    g.items.forEach(item => {
+                        if (!item.done) {
+                            item.done = true;
+                            item.ts = Date.now();
+                            item.tech = job.tech || 'Tech';
+                        }
+                    });
+                }
+            });
+        }
+
         this.syncToList(job.db_id);
         this.renderSidebar();
         this.updateStats();
         this.renderDetail();
 
-        await this.api(`jobs/${job.db_id}`, 'PUT', { stageIndex: i });
+        await this.api(`jobs/${job.db_id}`, 'PUT', { stageIndex: i, checklist: job.checklist });
         this.showToast('info', 'Stage Updated', `Moved to ${this.STAGES[i].label}`);
     },
 
