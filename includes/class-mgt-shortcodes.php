@@ -18,7 +18,10 @@ class MGT_Shortcodes {
 			wp_enqueue_style( 'google-fonts-barlow', 'https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600;700&family=Barlow:wght@300;400;500&display=swap', array(), null );
 			wp_enqueue_style( 'mgt-style', MGT_PLUGIN_URL . 'assets/css/style.css', array(), MGT_VERSION );
 			
-			wp_enqueue_script( 'mgt-app', MGT_PLUGIN_URL . 'assets/js/app.js', array( 'jquery' ), MGT_VERSION, true );
+			// Load Chart.js for reports
+			wp_enqueue_script( 'chart-js', 'https://cdn.jsdelivr.net/npm/chart.js', array(), null, true );
+			
+			wp_enqueue_script( 'mgt-app', MGT_PLUGIN_URL . 'assets/js/app.js', array( 'jquery', 'chart-js' ), MGT_VERSION, true );
 			
 			// Pass data to JS
 			$user = wp_get_current_user();

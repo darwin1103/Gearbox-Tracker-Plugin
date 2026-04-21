@@ -229,7 +229,6 @@ class MGT_API {
 		}
 
 		update_post_meta( $post_id, '_wo_id', $wo_id );
-		update_post_meta( $post_id, '_customer', sanitize_text_field( $params['customer'] ?? '' ) );
 		update_post_meta( $post_id, '_tech_id', $tech_id );
 		update_post_meta( $post_id, '_tech', $tech_name );
 		update_post_meta( $post_id, '_priority', sanitize_text_field( $params['priority'] ) );
@@ -274,7 +273,7 @@ class MGT_API {
 
 		$old_stage = (int) get_post_meta( $post_id, '_stage_index', true );
 
-		$fields = array( 'customer', 'tech', 'priority', 'dateIn', 'eta', 'failure', 'stageIndex' );
+		$fields = array( 'tech', 'priority', 'dateIn', 'eta', 'failure', 'stageIndex' );
 		foreach ( $fields as $field ) {
 			if ( isset( $params[$field] ) ) {
 				// Block geartechs from updating restricted fields
@@ -760,7 +759,6 @@ class MGT_API {
 			'db_id'           => $post_id,
 			'id'              => get_post_meta( $post_id, '_wo_id', true ),
 			'desc'            => $post->post_title,
-			'customer'        => get_post_meta( $post_id, '_customer', true ),
 			'tech'            => get_post_meta( $post_id, '_tech', true ),
 			'tech_id'         => get_post_meta( $post_id, '_tech_id', true ),
 			'priority'        => get_post_meta( $post_id, '_priority', true ),
@@ -807,7 +805,6 @@ class MGT_API {
 			'db_id'           => $post_id,
 			'id'              => get_post_meta( $post_id, '_wo_id', true ),
 			'desc'            => $post->post_title,
-			'customer'        => get_post_meta( $post_id, '_customer', true ),
 			'tech'            => get_post_meta( $post_id, '_tech', true ),
 			'tech_id'         => get_post_meta( $post_id, '_tech_id', true ),
 			'priority'        => get_post_meta( $post_id, '_priority', true ),

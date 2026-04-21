@@ -105,6 +105,7 @@ const MGT = {
                 <button class="tab-btn active" onclick="MGT.switchAdminTab('jobs')">Work Orders</button>
                 ${mgtData.userRole === 'admin' ? `
                 <button class="tab-btn" onclick="MGT.switchAdminTab('customers')">Customer Accounts</button>
+                <button class="tab-btn" onclick="MGT.switchAdminTab('reports')">Reports</button>
                 <button class="tab-btn" onclick="MGT.switchAdminTab('settings')">Email Settings</button>
                 ` : ''}
             </div>
@@ -170,6 +171,57 @@ const MGT = {
                 </div>
             </div>
 
+            <!-- ADMIN: REPORTS VIEW -->
+            <div id="adminReportsView" style="display:none; padding:1.5rem">
+                <div class="user-table-wrap">
+                    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:1.5rem;flex-wrap:wrap;gap:.75rem;">
+                        <div>
+                            <div class="section-heading" style="margin-bottom:.3rem">Analytics Dashboard</div>
+                            <div style="font-size:.75rem;color:var(--muted);">Overview of shop performance and workload.</div>
+                        </div>
+                        <button class="btn btn-primary" onclick="MGT.exportToCSV()" style="white-space:nowrap;">📥 Download CSV</button>
+                    </div>
+                    
+                    <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:1.5rem;">
+                        <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:1.5rem;text-align:center;">
+                            <div style="font-size:.8rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.5rem;">Turnaround & ETAs</div>
+                            <div style="font-size:2.5rem;font-weight:700;color:var(--red);line-height:1;" id="report-overdue-pct">0%</div>
+                            <div style="font-size:.85rem;color:var(--text);margin-top:.25rem;">of active jobs are overdue</div>
+                            <div style="font-size:.75rem;color:var(--muted);margin-top:.5rem;" id="report-turnaround-sub">0 on track / 0 overdue</div>
+                        </div>
+                        <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:1.5rem;text-align:center;">
+                            <div style="font-size:.8rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.5rem;">Volume this Month</div>
+                            <div style="display:flex;justify-content:center;gap:1.5rem;">
+                                <div>
+                                    <div style="font-size:2rem;font-weight:700;color:var(--green);line-height:1;" id="report-new-month">0</div>
+                                    <div style="font-size:.75rem;color:var(--muted);margin-top:.25rem;">New Inflow</div>
+                                </div>
+                                <div style="width:1px;background:var(--border);"></div>
+                                <div>
+                                    <div style="font-size:2rem;font-weight:700;color:var(--blue);line-height:1;" id="report-total-completed">0</div>
+                                    <div style="font-size:.75rem;color:var(--muted);margin-top:.25rem;">Total Completed</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(400px, 1fr));gap:1.5rem;margin-top:1.5rem;">
+                        <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:1.5rem;">
+                            <div style="font-size:.9rem;font-weight:600;margin-bottom:1rem;">Work Orders by Stage</div>
+                            <div style="height:250px;"><canvas id="chartBottlenecks"></canvas></div>
+                        </div>
+                        <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:1.5rem;">
+                            <div style="font-size:.9rem;font-weight:600;margin-bottom:1rem;">Active Jobs per Technician</div>
+                            <div style="height:250px;"><canvas id="chartTechs"></canvas></div>
+                        </div>
+                        <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:1.5rem;">
+                            <div style="font-size:.9rem;font-weight:600;margin-bottom:1rem;">Priority Breakdown</div>
+                            <div style="height:250px;display:flex;justify-content:center;"><canvas id="chartPriority"></canvas></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- CUSTOMER VIEW -->
             <div id="customerView" style="display:none">
                 <div class="customer-main" id="customerMainContent"></div>
@@ -186,8 +238,7 @@ const MGT = {
                         <div class="form-group"><label class="form-label">Priority</label><select class="form-select" id="f-priority"><option value="Low">Low</option><option value="Normal" selected>Normal</option><option value="High">High</option></select></div>
                     </div>
                     <div class="form-row full"><div class="form-group"><label class="form-label">Gearbox Description</label><input class="form-input" id="f-desc" placeholder="e.g. Flender H3SH helical, 250kW"/></div></div>
-                    <div class="form-row">
-                        <div class="form-group"><label class="form-label">Customer / Asset (label)</label><input class="form-input" id="f-customer" placeholder="e.g. Acme Plant #3"/></div>
+                    <div class="form-row full">
                         <div class="form-group"><label class="form-label">Assigned Tech</label><select class="form-select" id="f-tech"></select></div>
                     </div>
                     <div class="form-row">
@@ -329,9 +380,10 @@ const MGT = {
         // Reset mobile detail view when switching tabs
         document.getElementById('mgt-root').classList.remove('mobile-detail');
         document.querySelectorAll('.tab-btn').forEach((b, i) => b.classList.toggle('active', 
-            (i === 0 && tab === 'jobs') || (i === 1 && tab === 'customers') || (i === 2 && tab === 'settings')));
+            (i === 0 && tab === 'jobs') || (i === 1 && tab === 'customers') || (i === 2 && tab === 'reports') || (i === 3 && tab === 'settings')));
         document.getElementById('adminJobsView').style.display = tab === 'jobs' ? 'block' : 'none';
         document.getElementById('adminCustomersView').style.display = tab === 'customers' ? 'block' : 'none';
+        document.getElementById('adminReportsView').style.display = tab === 'reports' ? 'block' : 'none';
         document.getElementById('adminSettingsView').style.display = tab === 'settings' ? 'block' : 'none';
         if (tab === 'customers') this.renderCustomerTable();
         if (tab === 'jobs') {
@@ -342,6 +394,7 @@ const MGT = {
             }
         }
         if (tab === 'settings') this.loadEmailSettings();
+        if (tab === 'reports') this.renderReports();
     },
 
     // ── HELPERS ──
@@ -488,7 +541,6 @@ const MGT = {
     async createJob() {
         const id = document.getElementById('f-id').value.trim();
         const desc = document.getElementById('f-desc').value.trim();
-        const customer = document.getElementById('f-customer').value.trim();
         const techSelect = document.getElementById('f-tech');
         const tech_id = techSelect.value;
         const tech = techSelect.options[techSelect.selectedIndex]?.text || '';
@@ -509,7 +561,7 @@ const MGT = {
         }));
         
         const payload = {
-            wo_id: id, desc, customer, tech_id, tech, priority, dateIn, eta, failure, checklist,
+            wo_id: id, desc, tech_id, tech, priority, dateIn, eta, failure, checklist,
             linkedCustomers: linkedCustomerId ? [linkedCustomerId] : []
         };
 
@@ -517,7 +569,7 @@ const MGT = {
         // Cache the full detail and add light version to list
         this.jobDetails[newJob.db_id] = newJob;
         this.jobs.unshift({
-            db_id: newJob.db_id, id: newJob.id, desc: newJob.desc, customer: newJob.customer,
+            db_id: newJob.db_id, id: newJob.id, desc: newJob.desc,
             tech: newJob.tech, priority: newJob.priority, dateIn: newJob.dateIn, eta: newJob.eta,
             stageIndex: newJob.stageIndex, progress: 0, linkedCustomers: newJob.linkedCustomers,
             failure: newJob.failure
@@ -623,7 +675,6 @@ const MGT = {
                     <div class="detail-id">Work Order &middot; ${this.esc(job.id)} &middot; ${prioritySelect}</div>
                     <div class="detail-title">${this.esc(job.desc)}</div>
                     <div style="margin-top:.5rem;font-size:.8rem;color:var(--muted)">
-                        ${job.customer ? this.esc(job.customer) + ' &middot; ' : ''}
                         ${mgtData.userRole === 'admin' && this.techs ? `
                             <select onchange="MGT.updateJobField('tech_id', this.value)" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:.85rem;padding:.1rem .3rem;outline:none;border-radius:3px;cursor:pointer;">
                                 <option value="">Unassigned Tech</option>
@@ -1246,6 +1297,188 @@ const MGT = {
     async saveEmailSettings() {
         await this.api('settings', 'POST', this.emailSettingsData);
         this.showToast('success', 'Saved', 'Email settings updated.');
+    },
+
+    _chartBottlenecks: null,
+    _chartTechs: null,
+    _chartPriority: null,
+
+    renderReports() {
+        if (!window.Chart) {
+            console.error('Chart.js not loaded');
+            return;
+        }
+
+        const activeJobs = this.jobs.filter(j => !j.archived);
+        const completedJobs = this.jobs.filter(j => j.archived);
+        
+        // 1. Turnaround & ETAs
+        const now = new Date().getTime();
+        let overdueCount = 0;
+        let onTrackCount = 0;
+        activeJobs.forEach(j => {
+            if (j.eta) {
+                const etaTime = new Date(j.eta).getTime();
+                if (etaTime < now) overdueCount++;
+                else onTrackCount++;
+            }
+        });
+        const totalEtaJobs = overdueCount + onTrackCount;
+        const overduePct = totalEtaJobs === 0 ? 0 : Math.round((overdueCount / totalEtaJobs) * 100);
+        
+        document.getElementById('report-overdue-pct').textContent = `${overduePct}%`;
+        document.getElementById('report-turnaround-sub').textContent = `${onTrackCount} on track / ${overdueCount} overdue`;
+
+        // 2. Volume this month
+        const currentMonth = new Date().getMonth();
+        const currentYear = new Date().getFullYear();
+        let newThisMonth = 0;
+        this.jobs.forEach(j => {
+            if (j.dateIn) {
+                const d = new Date(j.dateIn);
+                if (d.getMonth() === currentMonth && d.getFullYear() === currentYear) {
+                    newThisMonth++;
+                }
+            }
+        });
+        document.getElementById('report-new-month').textContent = newThisMonth;
+        document.getElementById('report-total-completed').textContent = completedJobs.length;
+
+        // 3. Bottlenecks (Jobs by Stage)
+        const stageCounts = new Array(this.STAGES.length).fill(0);
+        activeJobs.forEach(j => {
+            let sIdx = Math.min(j.stageIndex || 0, this.STAGES.length - 1);
+            stageCounts[sIdx]++;
+        });
+        const stageLabels = this.STAGES.map(s => s.label);
+
+        Chart.defaults.color = '#94a3b8'; // Match dashboard text color
+        Chart.defaults.borderColor = 'rgba(255, 255, 255, 0.05)';
+
+        if (this._chartBottlenecks) this._chartBottlenecks.destroy();
+        this._chartBottlenecks = new Chart(document.getElementById('chartBottlenecks'), {
+            type: 'bar',
+            data: {
+                labels: stageLabels,
+                datasets: [{
+                    label: 'Active Jobs',
+                    data: stageCounts,
+                    backgroundColor: '#e07a35',
+                    borderRadius: 4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } }
+            }
+        });
+
+        // 4. Tech Workload
+        const techCounts = {};
+        activeJobs.forEach(j => {
+            const t = j.tech || 'Unassigned';
+            techCounts[t] = (techCounts[t] || 0) + 1;
+        });
+        const techLabels = Object.keys(techCounts);
+        const techData = Object.values(techCounts);
+
+        if (this._chartTechs) this._chartTechs.destroy();
+        this._chartTechs = new Chart(document.getElementById('chartTechs'), {
+            type: 'bar',
+            data: {
+                labels: techLabels,
+                datasets: [{
+                    label: 'Jobs',
+                    data: techData,
+                    backgroundColor: '#3b82f6',
+                    borderRadius: 4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                indexAxis: 'y',
+                plugins: { legend: { display: false } },
+                scales: { x: { beginAtZero: true, ticks: { stepSize: 1 } } }
+            }
+        });
+
+        // 5. Priority Breakdown
+        const priorityCounts = { 'Normal': 0, 'High': 0, 'Urgent': 0, 'Rush': 0 };
+        activeJobs.forEach(j => {
+            const p = j.priority || 'Normal';
+            priorityCounts[p] = (priorityCounts[p] || 0) + 1;
+        });
+        
+        if (this._chartPriority) this._chartPriority.destroy();
+        this._chartPriority = new Chart(document.getElementById('chartPriority'), {
+            type: 'doughnut',
+            data: {
+                labels: Object.keys(priorityCounts),
+                datasets: [{
+                    data: Object.values(priorityCounts),
+                    backgroundColor: ['#64748b', '#3b82f6', '#f59e0b', '#ef4444'],
+                    borderWidth: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                cutout: '70%',
+                plugins: {
+                    legend: { position: 'right' }
+                }
+            }
+        });
+    },
+
+    exportToCSV() {
+        if (!this.jobs || this.jobs.length === 0) {
+            this.showToast('error', 'Empty', 'No data to export.');
+            return;
+        }
+
+        const headers = ['WO ID', 'Description', 'Linked Customers', 'Technician', 'Priority', 'Date In', 'ETA', 'Failure', 'Stage', 'Status'];
+        
+        const rows = this.jobs.map(j => {
+            const stageName = this.STAGES[Math.min(j.stageIndex || 0, this.STAGES.length - 1)]?.label || 'Unknown';
+            const status = j.archived ? 'Archived' : 'Active';
+            const linkedNames = (j.linkedCustomers || []).map(cid => {
+                const c = this.customers?.find(u => u.id === cid);
+                return c ? c.name : `User #${cid}`;
+            }).join(' | ');
+            
+            return [
+                j.id,
+                j.desc,
+                linkedNames,
+                j.tech || 'Unassigned',
+                j.priority,
+                j.dateIn,
+                j.eta,
+                j.failure,
+                stageName,
+                status
+            ].map(v => {
+                let cell = (v || '').toString().replace(/"/g, '""');
+                if (cell.search(/("|,|\n)/g) >= 0) cell = `"${cell}"`;
+                return cell;
+            }).join(',');
+        });
+
+        const csvContent = [headers.join(','), ...rows].join('\n');
+        
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.setAttribute('href', url);
+        link.setAttribute('download', `gearbox-work-orders-${new Date().toISOString().split('T')[0]}.csv`);
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
     },
 
     // ── CUSTOMER PORTAL VIEW ──
