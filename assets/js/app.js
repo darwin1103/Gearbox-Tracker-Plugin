@@ -76,6 +76,14 @@ const MGT = {
     renderBaseHTML() {
         const root = document.getElementById('mgt-root');
         root.innerHTML = `
+            <style>
+            .toggle-switch { position: relative; display: inline-block; width: 36px; height: 20px; }
+            .toggle-switch input { opacity: 0; width: 0; height: 0; }
+            .toggle-slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--surface2); border: 1px solid var(--border2); transition: .2s; border-radius: 20px; }
+            .toggle-slider:before { position: absolute; content: ""; height: 14px; width: 14px; left: 2px; bottom: 2px; background-color: var(--muted); transition: .2s; border-radius: 50%; }
+            .toggle-switch input:checked + .toggle-slider { background-color: var(--green); border-color: var(--green); }
+            .toggle-switch input:checked + .toggle-slider:before { transform: translateX(16px); background-color: #fff; }
+            </style>
             <!-- TOP BAR -->
             <div class="topbar">
                 <div class="logo">
@@ -265,6 +273,25 @@ const MGT = {
                     <div class="modal-actions">
                         <button class="btn" onclick="MGT.closeModal('editNoteModal')">Cancel</button>
                         <button class="btn btn-primary" onclick="MGT.saveEditNote()">Save Changes</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-overlay" id="editTemplateModal">
+                <div class="modal">
+                    <div class="modal-title">Edit Email Template (<span id="tpl-stage-name"></span>)</div>
+                    <div style="font-size:.78rem;color:var(--muted);margin-bottom:1rem;line-height:1.6;">
+                        Available variables:
+                        <span id="tpl-vars-info">
+                            <code style="background:var(--surface2);padding:2px 4px;border-radius:3px;">{wo_id}</code> - Work Order ID, 
+                            <code style="background:var(--surface2);padding:2px 4px;border-radius:3px;">{stage_name}</code> - Current Stage Name
+                        </span>
+                    </div>
+                    <div class="form-group"><label class="form-label">Subject</label><input class="form-input" id="tpl-subject"/></div>
+                    <div class="form-group"><label class="form-label">Body</label><textarea class="form-input" id="tpl-body" rows="6" style="resize:vertical;"></textarea></div>
+                    <div class="modal-actions">
+                        <button class="btn" onclick="MGT.closeModal('editTemplateModal')">Cancel</button>
+                        <button class="btn btn-primary" onclick="MGT.saveTemplateModal()">Save Changes</button>
                     </div>
                 </div>
             </div>
@@ -1150,25 +1177,76 @@ const MGT = {
         this.renderCustomerTable();
     },
 
+    emailSettingsData: {},
+    editingTemplateStage: null,
+
     async loadEmailSettings() {
-        const settings = await this.api('settings', 'GET');
+        this.emailSettingsData = await this.api('settings', 'GET');
         let html = '';
         this.STAGES.forEach((s, i) => {
-            const checked = settings[`stage_${i}`] ? 'checked' : '';
-            html += `<label style="display:flex;align-items:center;gap:.6rem;font-size:.85rem;cursor:pointer;">
-                <input type="checkbox" id="setting_stage_${i}" ${checked} style="accent-color:var(--green);width:16px;height:16px;"/>
-                Notify when stage moves to <strong>${s.label}</strong>
-            </label>`;
+            const setting = this.emailSettingsData[`stage_${i}`] || { enabled: false, subject: '', body: '' };
+            const checked = setting.enabled ? 'checked' : '';
+            html += `<div style="display:flex;align-items:center;justify-content:space-between;padding:.75rem;border:1px solid var(--border);border-radius:4px;margin-bottom:.5rem;background:var(--surface);">
+                <div style="display:flex;align-items:center;gap:.6rem;">
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="setting_stage_${i}" ${checked} onchange="MGT.toggleEmailSetting(${i}, this.checked)" />
+                        <span class="toggle-slider"></span>
+                    </label>
+                    <span style="font-size:.85rem;">Notify when stage moves to <strong>${s.label}</strong></span>
+                </div>
+                <button class="btn" style="font-size:.7rem;padding:.3rem .6rem;" onclick="MGT.openEditTemplateModal('stage_${i}', '${s.label}')">✏ Edit Template</button>
+            </div>`;
         });
+        
+        html += `<div style="margin-top:1.5rem;font-weight:bold;margin-bottom:0.5rem;color:var(--text);">System Emails</div>`;
+        const sysTpls = [
+            { key: 'invite_email', label: 'Customer Invitation', vars: '{name}, {job_ref}, {message}, {reset_url}' },
+            { key: 'update_email', label: 'Manual Shop Update', vars: '{wo_id}, {text}' }
+        ];
+        sysTpls.forEach(tpl => {
+            html += `<div style="display:flex;align-items:center;justify-content:space-between;padding:.75rem;border:1px solid var(--border);border-radius:4px;margin-bottom:.5rem;background:var(--surface);">
+                <div style="font-size:.85rem;"><strong>${tpl.label}</strong> Email</div>
+                <button class="btn" style="font-size:.7rem;padding:.3rem .6rem;" onclick="MGT.openEditTemplateModal('${tpl.key}', '${tpl.label}', '${tpl.vars}')">✏ Edit Template</button>
+            </div>`;
+        });
+        
         document.getElementById('emailSettingsCheckboxes').innerHTML = html;
     },
 
+    toggleEmailSetting(i, isChecked) {
+        if (!this.emailSettingsData[`stage_${i}`]) this.emailSettingsData[`stage_${i}`] = {enabled:false,subject:'',body:''};
+        this.emailSettingsData[`stage_${i}`].enabled = isChecked;
+    },
+
+    openEditTemplateModal(key, label, varsStr) {
+        this.editingTemplateStage = key;
+        const setting = this.emailSettingsData[key] || { subject: '', body: '' };
+        document.getElementById('tpl-subject').value = setting.subject || '';
+        document.getElementById('tpl-body').value = setting.body || '';
+        document.getElementById('tpl-stage-name').textContent = label;
+        
+        let varsHtml = '';
+        if (varsStr) {
+            varsHtml = varsStr.split(', ').map(v => `<code style="background:var(--surface2);padding:2px 4px;border-radius:3px;">${v}</code>`).join(', ');
+        } else {
+            varsHtml = `<code style="background:var(--surface2);padding:2px 4px;border-radius:3px;">{wo_id}</code> - Work Order ID, <code style="background:var(--surface2);padding:2px 4px;border-radius:3px;">{stage_name}</code> - Current Stage Name`;
+        }
+        document.getElementById('tpl-vars-info').innerHTML = varsHtml;
+        
+        this.openModal('editTemplateModal');
+    },
+
+    saveTemplateModal() {
+        const key = this.editingTemplateStage;
+        if (!key) return;
+        if (!this.emailSettingsData[key]) this.emailSettingsData[key] = { enabled: true };
+        this.emailSettingsData[key].subject = document.getElementById('tpl-subject').value;
+        this.emailSettingsData[key].body = document.getElementById('tpl-body').value;
+        this.closeModal('editTemplateModal');
+    },
+
     async saveEmailSettings() {
-        const payload = {};
-        this.STAGES.forEach((s, i) => {
-            payload[`stage_${i}`] = document.getElementById(`setting_stage_${i}`).checked;
-        });
-        await this.api('settings', 'POST', payload);
+        await this.api('settings', 'POST', this.emailSettingsData);
         this.showToast('success', 'Saved', 'Email settings updated.');
     },
 

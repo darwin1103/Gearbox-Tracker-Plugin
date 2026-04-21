@@ -515,8 +515,17 @@ class MGT_API {
 		if ( is_wp_error( $key ) ) return $key;
 		$reset_url = network_site_url( "wp-login.php?action=rp&key=$key&login=" . rawurlencode( $user->user_login ), 'login' );
 
-        $subject = 'You have been invited to the Mayday Gearbox Portal';
-        $body = "Hello $name,\n\n$message\n\nJob Reference: $job_ref\n\nWe have created an account for you. Please set your password by clicking the link below:\n\n$reset_url";
+		$settings = get_option( 'mgt_email_settings', array() );
+		$template = isset( $settings['invite_email'] ) ? $settings['invite_email'] : array(
+			'subject' => 'You have been invited to the Mayday Gearbox Portal',
+			'body'    => "Hello {name},\n\n{message}\n\nJob Reference: {job_ref}\n\nWe have created an account for you. Please set your password by clicking the link below:\n\n{reset_url}"
+		);
+
+		$search  = array( '{name}', '{job_ref}', '{message}', '{reset_url}' );
+		$replace = array( $name, $job_ref, $message, $reset_url );
+
+		$subject = str_replace( $search, $replace, $template['subject'] );
+		$body    = str_replace( $search, $replace, $template['body'] );
 
         $sent = wp_mail( $email, $subject, $body );
 
@@ -556,10 +565,37 @@ class MGT_API {
 		$settings = get_option( 'mgt_email_settings', array() );
 		$stages = array( 'Intake', 'Teardown', 'Inspection', 'Parts', 'Rebuild', /* 'Spin Test', */ 'Painting', 'Complete' );
 		foreach ( $stages as $idx => $stage ) {
+			$default = array(
+				'enabled' => true,
+				'subject' => "Work Order Update: {wo_id} is now in {stage_name} stage",
+				'body'    => "Hello,\n\nYour work order ({wo_id}) has been moved to the following stage: {stage_name}.\n\nYou can log in to our portal to view more details and photos.\n\nThank you,\nMayday Gearbox Repair"
+			);
 			if ( ! isset( $settings["stage_$idx"] ) ) {
-				$settings["stage_$idx"] = true;
+				$settings["stage_$idx"] = $default;
+			} elseif ( ! is_array( $settings["stage_$idx"] ) ) {
+				// Migrate legacy boolean
+				$default['enabled'] = (bool) $settings["stage_$idx"];
+				$settings["stage_$idx"] = $default;
+			} else {
+				// Ensure keys exist
+				if ( ! isset( $settings["stage_$idx"]['subject'] ) ) $settings["stage_$idx"]['subject'] = $default['subject'];
+				if ( ! isset( $settings["stage_$idx"]['body'] ) ) $settings["stage_$idx"]['body'] = $default['body'];
 			}
 		}
+
+		if ( ! isset( $settings['invite_email'] ) ) {
+			$settings['invite_email'] = array(
+				'subject' => 'You have been invited to the Mayday Gearbox Portal',
+				'body'    => "Hello {name},\n\n{message}\n\nJob Reference: {job_ref}\n\nWe have created an account for you. Please set your password by clicking the link below:\n\n{reset_url}"
+			);
+		}
+		if ( ! isset( $settings['update_email'] ) ) {
+			$settings['update_email'] = array(
+				'subject' => 'Work Order Update: {wo_id}',
+				'body'    => "Hello,\n\nYou have a new update on your work order ({wo_id}):\n\n{text}\n\nYou can log in to the portal to view the full update with photos.\n\nThank you,\nMayday Gearbox Repair"
+			);
+		}
+
 		return rest_ensure_response( $settings );
 	}
 
@@ -621,10 +657,17 @@ class MGT_API {
 			return rest_ensure_response( array( 'success' => true, 'sent' => 0 ) );
 		}
 
-		$subject = "Work Order Update: $wo_id";
-		$body  = "Hello,\n\nYou have a new update on your work order ($wo_id):\n\n";
-		$body .= "$text\n\n";
-		$body .= "You can log in to the portal to view the full update with photos.\n\nThank you,\nMayday Gearbox Repair";
+		$settings = get_option( 'mgt_email_settings', array() );
+		$template = isset( $settings['update_email'] ) ? $settings['update_email'] : array(
+			'subject' => 'Work Order Update: {wo_id}',
+			'body'    => "Hello,\n\nYou have a new update on your work order ({wo_id}):\n\n{text}\n\nYou can log in to the portal to view the full update with photos.\n\nThank you,\nMayday Gearbox Repair"
+		);
+
+		$search  = array( '{wo_id}', '{text}' );
+		$replace = array( $wo_id, $text );
+
+		$subject = str_replace( $search, $replace, $template['subject'] );
+		$body    = str_replace( $search, $replace, $template['body'] );
 
 		// Resolve WP attachment IDs to local file paths
 		$mail_attachments = array();
@@ -650,8 +693,20 @@ class MGT_API {
 
 	private static function send_stage_update_email( $post_id, $new_stage ) {
 		$settings = get_option( 'mgt_email_settings', array() );
-		$is_enabled = isset( $settings["stage_$new_stage"] ) ? $settings["stage_$new_stage"] : true;
-		if ( ! $is_enabled ) {
+		
+		$default = array(
+			'enabled' => true,
+			'subject' => "Work Order Update: {wo_id} is now in {stage_name} stage",
+			'body'    => "Hello,\n\nYour work order ({wo_id}) has been moved to the following stage: {stage_name}.\n\nYou can log in to our portal to view more details and photos.\n\nThank you,\nMayday Gearbox Repair"
+		);
+		$stage_setting = isset( $settings["stage_$new_stage"] ) ? $settings["stage_$new_stage"] : $default;
+		
+		if ( ! is_array( $stage_setting ) ) {
+			$default['enabled'] = (bool) $stage_setting;
+			$stage_setting = $default;
+		}
+
+		if ( empty( $stage_setting['enabled'] ) ) {
 			return; // Disabled in settings
 		}
 
@@ -662,8 +717,8 @@ class MGT_API {
 		$linked_customers = get_post_meta( $post_id, '_linked_customers', true );
 		if ( empty( $linked_customers ) || ! is_array( $linked_customers ) ) return;
 
-		$subject = "Work Order Update: $wo_id is now in $stage_name stage";
-		$body = "Hello,\n\nYour work order ($wo_id) has been moved to the following stage: $stage_name.\n\nYou can log in to our portal to view more details and photos.\n\nThank you,\nMayday Gearbox Repair";
+		$subject = str_replace( array( '{wo_id}', '{stage_name}' ), array( $wo_id, $stage_name ), $stage_setting['subject'] );
+		$body    = str_replace( array( '{wo_id}', '{stage_name}' ), array( $wo_id, $stage_name ), $stage_setting['body'] );
 
 		foreach ( $linked_customers as $customer_id ) {
 			$user = get_userdata( $customer_id );
