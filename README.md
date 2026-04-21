@@ -7,12 +7,18 @@ A comprehensive, responsive, and performance-optimized Work Order Tracking Porta
 - **Single Page Application (SPA) Portal:** A lightning-fast, custom frontend built with Vanilla JS that communicates seamlessly with a custom WordPress REST API.
 - **Two-Tier Lazy Loading Architecture:** Optimized performance that loads lightweight job lists instantly and fetches heavy payloads (checklists, notes, and attachments) only on demand, eliminating N+1 query bottlenecks.
 - **Role-Based Access Control (RBAC):**
-  - **Administrators/Shop Managers:** Full control to create work orders, assign stages, write internal/external updates, upload photos/PDFs, and link work orders to specific customers.
+  - **Administrators/Shop Managers:** Full control to create work orders, assign stages, write internal/external updates, upload photos/PDFs, configure settings, and access analytics.
+  - **Geartech (Technicians):** Can view their assigned jobs, update their checklists, add notes, and upload attachments. They cannot edit initial WO details or modify external settings.
   - **Customers:** Secure, restricted view where they can only see work orders explicitly linked to their accounts. They can track progress and view public updates/photos without seeing internal notes.
+- **Analytics & Reporting Dashboard:** Built-in real-time analytics using `Chart.js` for shop managers. Displays turnaround ETAs, monthly volume, bottlenecks per stage, technician workload, and priority distribution. Includes 1-click **CSV Data Exports**.
+- **Dynamic Email & Notification Engine:**
+  - Configurable notification system with a visual UI to enable/disable automated emails per stage.
+  - Custom email templating utilizing dynamic variables (e.g. `{wo_id}`, `{stage_name}`).
+  - Automated Customer Invitations and Manual Shop Update emails.
 - **Dynamic Checklists & Progress Tracking:** Server-side calculation of repair progress based on customizable multi-stage checklists (Intake, Teardown, Inspection, Parts, Assembly, Paint, Complete).
 - **Automated Workflow Features:**
   - Auto-generated Work Order IDs (`WO-YYYY-XXX`).
-  - Stage-change email notifications to linked customers.
+  - Strict customer-linking system preventing data entry errors.
   - Quick archiving of completed jobs.
   - Robust search and stage-filtering for easy navigation.
 - **Media Management:** Integrated lightbox gallery for image attachments and simple PDF viewers for documents directly within the portal.
