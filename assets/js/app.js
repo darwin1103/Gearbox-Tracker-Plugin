@@ -146,14 +146,14 @@ const MGT = {
                         <button class="btn btn-primary" onclick="MGT.openModal('inviteModal')" style="white-space:nowrap;">✉ Invite Customer</button>
                     </div>
                     <table class="user-table" id="customerTable">
-                        <thead><tr><th>Name</th><th>Email</th><th>Company</th><th>Linked Jobs</th><th>Actions</th></tr></thead>
+                        <thead><tr><th>Name</th><th>Email</th><th>Linked Jobs</th><th>Actions</th></tr></thead>
                         <tbody id="customerTableBody"></tbody>
                     </table>
 
                     <div style="margin-top:3rem;">
                         <div class="section-heading" style="margin-bottom:.3rem">Shop Staff & Admins</div>
                         <table class="user-table" id="adminTable">
-                            <thead><tr><th>Name</th><th>Email</th><th>Company</th><th>Role</th></tr></thead>
+                            <thead><tr><th>Name</th><th>Email</th><th>Role</th></tr></thead>
                             <tbody id="adminTableBody"></tbody>
                         </table>
                     </div>
@@ -1037,7 +1037,6 @@ const MGT = {
                 return `<tr>
                     <td>${this.esc(c.name)}</td>
                     <td style="color:var(--muted)">${this.esc(c.email)}</td>
-                    <td>${this.esc(c.company || '—')}</td>
                     <td>${tags || '<span style="color:var(--muted2)">None</span>'}</td>
                     <td>
                         <div style="display:flex;gap:5px;flex-wrap:wrap;">
@@ -1051,11 +1050,10 @@ const MGT = {
             }).join('');
 
         tbodyAdmin.innerHTML = admins.length === 0 
-            ? '<tr><td colspan="4" style="color:var(--muted);padding:1.5rem .75rem">No admins.</td></tr>' 
+            ? '<tr><td colspan="3" style="color:var(--muted);padding:1.5rem .75rem">No admins.</td></tr>' 
             : admins.map(c => `<tr>
                 <td>${this.esc(c.name)}</td>
                 <td style="color:var(--muted)">${this.esc(c.email)}</td>
-                <td>${this.esc(c.company || '—')}</td>
                 <td>${this.esc(c.roleLabel || 'Admin')}</td>
             </tr>`).join('');
     },
