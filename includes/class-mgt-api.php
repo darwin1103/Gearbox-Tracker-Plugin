@@ -36,7 +36,7 @@ class MGT_API {
 			array(
 				'methods'             => WP_REST_Server::EDITABLE,
 				'callback'            => array( __CLASS__, 'update_job' ),
-				'permission_callback' => array( __CLASS__, 'check_admin_permission' ),
+				'permission_callback' => array( __CLASS__, 'check_tech_permission' ),
 			),
 			array(
 				'methods'             => WP_REST_Server::DELETABLE,
@@ -49,7 +49,7 @@ class MGT_API {
 			array(
 				'methods'             => WP_REST_Server::CREATABLE,
 				'callback'            => array( __CLASS__, 'notify_customers' ),
-				'permission_callback' => array( __CLASS__, 'check_admin_permission' ),
+				'permission_callback' => array( __CLASS__, 'check_tech_permission' ),
 			),
 		) );
 
@@ -57,7 +57,7 @@ class MGT_API {
 			array(
 				'methods'             => WP_REST_Server::CREATABLE,
 				'callback'            => array( __CLASS__, 'upload_media' ),
-				'permission_callback' => array( __CLASS__, 'check_admin_permission' ),
+				'permission_callback' => array( __CLASS__, 'check_tech_permission' ),
 			),
 		) );
 
@@ -113,6 +113,14 @@ class MGT_API {
 				'permission_callback' => array( __CLASS__, 'check_admin_permission' ),
 			),
 		) );
+
+		register_rest_route( $namespace, '/techs', array(
+			array(
+				'methods'             => WP_REST_Server::READABLE,
+				'callback'            => array( __CLASS__, 'get_techs' ),
+				'permission_callback' => array( __CLASS__, 'check_tech_permission' ),
+			),
+		) );
 	}
 
 	public static function check_permission() {
@@ -121,6 +129,10 @@ class MGT_API {
 
 	public static function check_admin_permission() {
 		return current_user_can( 'manage_options' ) || current_user_can( 'shop_manager' );
+	}
+
+	public static function check_tech_permission() {
+		return self::check_admin_permission() || current_user_can( 'geartech' );
 	}
 
 	public static function get_jobs( $request ) {
@@ -134,11 +146,20 @@ class MGT_API {
 		);
 
 		if ( ! $is_admin ) {
-			$linked_jobs = get_user_meta( $user_id, '_linked_jobs', true );
-			if ( empty( $linked_jobs ) ) {
-				return rest_ensure_response( array() );
+			if ( current_user_can( 'geartech' ) ) {
+				$args['meta_query'] = array(
+					array(
+						'key'   => '_tech_id',
+						'value' => $user_id,
+					),
+				);
+			} else {
+				$linked_jobs = get_user_meta( $user_id, '_linked_jobs', true );
+				if ( empty( $linked_jobs ) ) {
+					return rest_ensure_response( array() );
+				}
+				$args['post__in'] = $linked_jobs;
 			}
-			$args['post__in'] = $linked_jobs;
 		}
 
 		$jobs = get_posts( $args );
@@ -165,12 +186,19 @@ class MGT_API {
 			return new WP_Error( 'not_found', 'Work order not found', array( 'status' => 404 ) );
 		}
 
-		// Customers can only access their own linked jobs
+		// Customers or Techs can only access their allowed jobs
 		if ( ! self::check_admin_permission() ) {
 			$user_id = get_current_user_id();
-			$linked_jobs = get_user_meta( $user_id, '_linked_jobs', true );
-			if ( empty( $linked_jobs ) || ! in_array( $post_id, array_map( 'intval', (array) $linked_jobs ), true ) ) {
-				return new WP_Error( 'forbidden', 'Access denied', array( 'status' => 403 ) );
+			if ( current_user_can( 'geartech' ) ) {
+				$tech_id = get_post_meta( $post_id, '_tech_id', true );
+				if ( (int) $tech_id !== $user_id ) {
+					return new WP_Error( 'forbidden', 'Access denied', array( 'status' => 403 ) );
+				}
+			} else {
+				$linked_jobs = get_user_meta( $user_id, '_linked_jobs', true );
+				if ( empty( $linked_jobs ) || ! in_array( $post_id, array_map( 'intval', (array) $linked_jobs ), true ) ) {
+					return new WP_Error( 'forbidden', 'Access denied', array( 'status' => 403 ) );
+				}
 			}
 		}
 
@@ -192,9 +220,18 @@ class MGT_API {
 
 		// Use manual WO number provided by admin
 		$wo_id = isset( $params['wo_id'] ) ? sanitize_text_field( $params['wo_id'] ) : '';
+		
+		$tech_id = isset( $params['tech_id'] ) ? sanitize_text_field( $params['tech_id'] ) : '';
+		$tech_name = sanitize_text_field( $params['tech'] ?? '' );
+		if ( $tech_id ) {
+			$user = get_userdata( $tech_id );
+			if ( $user ) $tech_name = $user->display_name;
+		}
+
 		update_post_meta( $post_id, '_wo_id', $wo_id );
 		update_post_meta( $post_id, '_customer', sanitize_text_field( $params['customer'] ?? '' ) );
-		update_post_meta( $post_id, '_tech', sanitize_text_field( $params['tech'] ) );
+		update_post_meta( $post_id, '_tech_id', $tech_id );
+		update_post_meta( $post_id, '_tech', $tech_name );
 		update_post_meta( $post_id, '_priority', sanitize_text_field( $params['priority'] ) );
 		update_post_meta( $post_id, '_date_in', sanitize_text_field( $params['dateIn'] ) );
 		update_post_meta( $post_id, '_eta', sanitize_text_field( $params['eta'] ) );
@@ -219,11 +256,20 @@ class MGT_API {
 		$post_id = $request['id'];
 		$params = $request->get_json_params();
 
+		if ( current_user_can( 'geartech' ) && ! self::check_admin_permission() ) {
+			$tech_id = get_post_meta( $post_id, '_tech_id', true );
+			if ( (int) $tech_id !== get_current_user_id() ) {
+				return new WP_Error( 'forbidden', 'Access denied', array( 'status' => 403 ) );
+			}
+		}
+
 		if ( isset( $params['desc'] ) ) {
-			wp_update_post( array(
-				'ID'         => $post_id,
-				'post_title' => sanitize_text_field( $params['desc'] )
-			) );
+			if ( ! current_user_can( 'geartech' ) || self::check_admin_permission() ) {
+				wp_update_post( array(
+					'ID'         => $post_id,
+					'post_title' => sanitize_text_field( $params['desc'] )
+				) );
+			}
 		}
 
 		$old_stage = (int) get_post_meta( $post_id, '_stage_index', true );
@@ -231,9 +277,24 @@ class MGT_API {
 		$fields = array( 'customer', 'tech', 'priority', 'dateIn', 'eta', 'failure', 'stageIndex' );
 		foreach ( $fields as $field ) {
 			if ( isset( $params[$field] ) ) {
+				// Block geartechs from updating restricted fields
+				if ( current_user_can( 'geartech' ) && ! self::check_admin_permission() && $field !== 'stageIndex' ) {
+					continue;
+				}
 				$meta_key = '_' . strtolower( preg_replace('/(?<!^)[A-Z]/', '_$0', $field) );
 				if ( $field === 'stageIndex' ) $meta_key = '_stage_index';
 				update_post_meta( $post_id, $meta_key, sanitize_text_field( $params[$field] ) );
+			}
+		}
+
+		if ( isset( $params['tech_id'] ) ) {
+			if ( ! current_user_can( 'geartech' ) || self::check_admin_permission() ) {
+				$tech_id = sanitize_text_field( $params['tech_id'] );
+				update_post_meta( $post_id, '_tech_id', $tech_id );
+				$user = get_userdata( $tech_id );
+				if ( $user ) {
+					update_post_meta( $post_id, '_tech', $user->display_name );
+				}
 			}
 		}
 
@@ -252,10 +313,14 @@ class MGT_API {
 			update_post_meta( $post_id, '_checklist', wp_json_encode( $params['checklist'] ) );
 		}
 		if ( isset( $params['notes'] ) ) {
-			update_post_meta( $post_id, '_notes', wp_json_encode( $params['notes'] ) );
+			if ( ! current_user_can( 'geartech' ) || self::check_admin_permission() ) {
+				update_post_meta( $post_id, '_notes', wp_json_encode( $params['notes'] ) );
+			}
 		}
 		if ( isset( $params['linkedCustomers'] ) && is_array( $params['linkedCustomers'] ) ) {
-			self::sync_job_customer_link( $post_id, array_map( 'intval', $params['linkedCustomers'] ) );
+			if ( ! current_user_can( 'geartech' ) || self::check_admin_permission() ) {
+				self::sync_job_customer_link( $post_id, array_map( 'intval', $params['linkedCustomers'] ) );
+			}
 		}
 
 		return rest_ensure_response( self::format_job( $post_id ) );
@@ -267,8 +332,21 @@ class MGT_API {
 		return rest_ensure_response( array( 'success' => true ) );
 	}
 
+	public static function get_techs( $request ) {
+		$users = get_users( array( 'role' => 'geartech' ) );
+		$data = array();
+		foreach ( $users as $user ) {
+			$data[] = array(
+				'id'    => $user->ID,
+				'name'  => $user->display_name,
+				'email' => $user->user_email,
+			);
+		}
+		return rest_ensure_response( $data );
+	}
+
 	public static function get_customers( $request ) {
-		$users = get_users( array( 'role__in' => array( 'gearbox_customer', 'shop_manager', 'administrator' ) ) );
+		$users = get_users( array( 'role__in' => array( 'geartech', 'gearbox_customer', 'shop_manager', 'administrator' ) ) );
 		$data = array();
 
 		foreach ( $users as $user ) {
@@ -494,6 +572,13 @@ class MGT_API {
 	public static function upload_media( $request ) {
 		$post_id = $request['id'];
 		
+		if ( current_user_can( 'geartech' ) && ! self::check_admin_permission() ) {
+			$tech_id = get_post_meta( $post_id, '_tech_id', true );
+			if ( (int) $tech_id !== get_current_user_id() ) {
+				return new WP_Error( 'forbidden', 'Access denied', array( 'status' => 403 ) );
+			}
+		}
+
 		if ( empty( $_FILES ) ) {
 			return new WP_Error( 'no_files', 'No files provided', array( 'status' => 400 ) );
 		}
@@ -519,6 +604,14 @@ class MGT_API {
 	public static function notify_customers( $request ) {
 		$post_id = (int) $request['id'];
 		$params  = $request->get_json_params();
+
+		if ( current_user_can( 'geartech' ) && ! self::check_admin_permission() ) {
+			$tech_id = get_post_meta( $post_id, '_tech_id', true );
+			if ( (int) $tech_id !== get_current_user_id() ) {
+				return new WP_Error( 'forbidden', 'Access denied', array( 'status' => 403 ) );
+			}
+		}
+
 		$text    = isset( $params['text'] ) ? sanitize_textarea_field( $params['text'] ) : '';
 		$files   = isset( $params['attachments'] ) && is_array( $params['attachments'] ) ? $params['attachments'] : array();
 
@@ -614,6 +707,7 @@ class MGT_API {
 			'desc'            => $post->post_title,
 			'customer'        => get_post_meta( $post_id, '_customer', true ),
 			'tech'            => get_post_meta( $post_id, '_tech', true ),
+			'tech_id'         => get_post_meta( $post_id, '_tech_id', true ),
 			'priority'        => get_post_meta( $post_id, '_priority', true ),
 			'dateIn'          => get_post_meta( $post_id, '_date_in', true ),
 			'eta'             => get_post_meta( $post_id, '_eta', true ),
@@ -660,6 +754,7 @@ class MGT_API {
 			'desc'            => $post->post_title,
 			'customer'        => get_post_meta( $post_id, '_customer', true ),
 			'tech'            => get_post_meta( $post_id, '_tech', true ),
+			'tech_id'         => get_post_meta( $post_id, '_tech_id', true ),
 			'priority'        => get_post_meta( $post_id, '_priority', true ),
 			'dateIn'          => get_post_meta( $post_id, '_date_in', true ),
 			'eta'             => get_post_meta( $post_id, '_eta', true ),

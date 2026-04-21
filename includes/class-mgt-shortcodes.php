@@ -25,6 +25,8 @@ class MGT_Shortcodes {
 			$role = 'customer';
 			if ( in_array( 'shop_manager', (array) $user->roles ) || in_array( 'administrator', (array) $user->roles ) ) {
 				$role = 'admin';
+			} elseif ( in_array( 'geartech', (array) $user->roles ) ) {
+				$role = 'geartech';
 			}
 			$is_administrator = in_array( 'administrator', (array) $user->roles );
 

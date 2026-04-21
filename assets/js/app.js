@@ -1,6 +1,7 @@
 const MGT = {
     jobs: [],
     customers: [],
+    techs: [],
     jobDetails: {},
     activeJobId: null,
     adminTab: 'jobs',
@@ -41,6 +42,10 @@ const MGT = {
             if (mgtData.userRole === 'admin') {
                 const custRes = await fetch(mgtData.restUrl + 'customers', { headers: { 'X-WP-Nonce': mgtData.nonce } });
                 if (custRes.ok) this.customers = await custRes.json();
+            }
+            if (mgtData.userRole === 'admin' || mgtData.userRole === 'geartech') {
+                const techsRes = await fetch(mgtData.restUrl + 'techs', { headers: { 'X-WP-Nonce': mgtData.nonce } });
+                if (techsRes.ok) this.techs = await techsRes.json();
             }
         } catch (e) {
             console.error("MGT Load Data Error", e);
@@ -90,8 +95,10 @@ const MGT = {
             <!-- ADMIN TAB BAR -->
             <div class="tab-bar" id="adminTabBar" style="display:none">
                 <button class="tab-btn active" onclick="MGT.switchAdminTab('jobs')">Work Orders</button>
+                ${mgtData.userRole === 'admin' ? `
                 <button class="tab-btn" onclick="MGT.switchAdminTab('customers')">Customer Accounts</button>
                 <button class="tab-btn" onclick="MGT.switchAdminTab('settings')">Email Settings</button>
+                ` : ''}
             </div>
 
             <!-- ADMIN: JOBS VIEW -->
@@ -100,7 +107,7 @@ const MGT = {
                     <aside class="sidebar">
                         <div class="sidebar-header">
                             <span class="sidebar-label">Work Orders</span>
-                            <button class="btn-add" onclick="MGT.openNewJobModal()">+ New Job</button>
+                            ${mgtData.userRole === 'admin' ? `<button class="btn-add" onclick="MGT.openNewJobModal()">+ New Job</button>` : ''}
                         </div>
                         <div class="sidebar-filters">
                             <input type="text" class="sidebar-search" id="sidebarSearch" placeholder="Search WO, description, customer..." oninput="MGT.sidebarSearch=this.value;MGT.renderSidebar()"/>
@@ -173,7 +180,7 @@ const MGT = {
                     <div class="form-row full"><div class="form-group"><label class="form-label">Gearbox Description</label><input class="form-input" id="f-desc" placeholder="e.g. Flender H3SH helical, 250kW"/></div></div>
                     <div class="form-row">
                         <div class="form-group"><label class="form-label">Customer / Asset (label)</label><input class="form-input" id="f-customer" placeholder="e.g. Acme Plant #3"/></div>
-                        <div class="form-group"><label class="form-label">Assigned Tech</label><input class="form-input" id="f-tech" placeholder="e.g. J. Martinez"/></div>
+                        <div class="form-group"><label class="form-label">Assigned Tech</label><select class="form-select" id="f-tech"></select></div>
                     </div>
                     <div class="form-row">
                         <div class="form-group"><label class="form-label">Date In</label><input class="form-input" id="f-date" type="date"/></div>
@@ -273,9 +280,11 @@ const MGT = {
     },
 
     enterApp() {
-        document.getElementById('userPill').textContent = mgtData.userRole === 'admin' ? '⚙ Admin' : mgtData.userEmail;
-        if (mgtData.userRole === 'admin') {
-            document.getElementById('adminStats').style.display = 'flex';
+        document.getElementById('userPill').textContent = mgtData.userRole === 'admin' ? '⚙ Admin' : (mgtData.userRole === 'geartech' ? '🔧 Tech' : mgtData.userEmail);
+        if (mgtData.userRole === 'admin' || mgtData.userRole === 'geartech') {
+            if (mgtData.userRole === 'admin') {
+                document.getElementById('adminStats').style.display = 'flex';
+            }
             document.getElementById('adminTabBar').style.display = 'flex';
             // WP Admin button only for actual administrators, not shop managers
             if (mgtData.isAdministrator) {
@@ -335,6 +344,10 @@ const MGT = {
         const idInput = document.getElementById('f-id');
         if (idInput) {
             idInput.value = '';
+        }
+        const techSelect = document.getElementById('f-tech');
+        if (techSelect) {
+            techSelect.innerHTML = '<option value="">Select Tech...</option>' + this.techs.map(t => `<option value="${t.id}">${this.esc(t.name)}</option>`).join('');
         }
     },
     closeModal(id) { document.getElementById(id).classList.remove('open'); },
@@ -449,14 +462,16 @@ const MGT = {
         const id = document.getElementById('f-id').value.trim();
         const desc = document.getElementById('f-desc').value.trim();
         const customer = document.getElementById('f-customer').value.trim();
-        const tech = document.getElementById('f-tech').value.trim();
+        const techSelect = document.getElementById('f-tech');
+        const tech_id = techSelect.value;
+        const tech = techSelect.options[techSelect.selectedIndex]?.text || '';
         const priority = document.getElementById('f-priority').value;
         const dateIn = document.getElementById('f-date').value;
         const eta = document.getElementById('f-eta').value;
         const failure = document.getElementById('f-failure').value.trim();
         const linkedCustomerId = document.getElementById('f-customer-id') ? parseInt(document.getElementById('f-customer-id').value) || null : null;
 
-        if (!id || !desc || !tech || !priority || !dateIn || !eta) {
+        if (!id || !desc || !tech_id || !priority || !dateIn || !eta) {
             this.showToast('error', 'Required Fields', 'Please fill in all required fields to create a work order.');
             return;
         }
@@ -467,7 +482,7 @@ const MGT = {
         }));
         
         const payload = {
-            wo_id: id, desc, customer, tech, priority, dateIn, eta, failure, checklist,
+            wo_id: id, desc, customer, tech_id, tech, priority, dateIn, eta, failure, checklist,
             linkedCustomers: linkedCustomerId ? [linkedCustomerId] : []
         };
 
@@ -567,13 +582,13 @@ const MGT = {
 
         const p = job.priority || 'Normal';
         const priorityColor = (p === 'Rush' || p === 'High') ? 'var(--red)' : (p === 'Urgent' ? 'var(--yellow)' : 'var(--muted)');
-        const prioritySelect = `
+        const prioritySelect = mgtData.userRole === 'admin' ? `
             <select onchange="MGT.updateJobField('priority', this.value)" style="background:var(--surface2);border:1px solid var(--border);color:${priorityColor};font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:.85rem;padding:.1rem .3rem;outline:none;border-radius:3px;cursor:pointer;">
                 <option value="Low" ${p==='Low'?'selected':''} style="background:var(--surface2);color:var(--text)">Low</option>
                 <option value="Normal" ${p==='Normal'?'selected':''} style="background:var(--surface2);color:var(--text)">Normal</option>
                 <option value="High" ${p==='High'?'selected':''} style="background:var(--surface2);color:var(--text)">High</option>
             </select>
-        `;
+        ` : `<span style="color:${priorityColor};font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:.85rem;padding:.1rem .3rem;">${this.esc(p)}</span>`;
 
         main.innerHTML = `${backBtn}<div class="job-detail">
             <div class="detail-header">
@@ -581,7 +596,14 @@ const MGT = {
                     <div class="detail-id">Work Order &middot; ${this.esc(job.id)} &middot; ${prioritySelect}</div>
                     <div class="detail-title">${this.esc(job.desc)}</div>
                     <div style="margin-top:.5rem;font-size:.8rem;color:var(--muted)">
-                        ${job.customer ? this.esc(job.customer) + ' &middot; ' : ''}${job.tech ? 'Tech: ' + this.esc(job.tech) : ''} &middot; Progress: <strong style="color:var(--green)">${pct}%</strong>
+                        ${job.customer ? this.esc(job.customer) + ' &middot; ' : ''}
+                        ${mgtData.userRole === 'admin' && this.techs ? `
+                            <select onchange="MGT.updateJobField('tech_id', this.value)" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:.85rem;padding:.1rem .3rem;outline:none;border-radius:3px;cursor:pointer;">
+                                <option value="">Unassigned Tech</option>
+                                ${this.techs.map(t => `<option value="${t.id}" ${job.tech_id === t.id.toString() ? 'selected' : ''}>${this.esc(t.name)}</option>`).join('')}
+                            </select>
+                        ` : (job.tech ? `Tech: ${this.esc(job.tech)}` : 'Unassigned')}
+                        &middot; Progress: <strong style="color:var(--green)">${pct}%</strong>
                     </div>
                     ${(() => {
                         const linked = (job.linkedCustomers || []).map(cid => {
@@ -592,9 +614,9 @@ const MGT = {
                     })()}
                 </div>
                 <div class="detail-actions">
-                    <button class="btn" onclick="MGT.openLinkCustomersModal()">🔗 Link Customers</button>
+                    ${mgtData.userRole === 'admin' ? `<button class="btn" onclick="MGT.openLinkCustomersModal()">🔗 Link Customers</button>` : ''}
                     ${job.stageIndex >= this.STAGES.length - 1 ? `<button class="btn" onclick="MGT.toggleArchive(${job.db_id})">${job.archived ? '📂 Unarchive' : '📦 Archive'}</button>` : ''}
-                    <button class="btn btn-danger" onclick="MGT.deleteJob(${job.db_id})">Delete</button>
+                    ${mgtData.userRole === 'admin' ? `<button class="btn btn-danger" onclick="MGT.deleteJob(${job.db_id})">Delete</button>` : ''}
                 </div>
             </div>
             
@@ -603,8 +625,10 @@ const MGT = {
                 <div class="info-cell">
                     <div class="info-label">Est. Complete</div>
                     <div style="display:flex;align-items:center;gap:.4rem;margin-top:.3rem;">
+                        ${mgtData.userRole === 'admin' ? `
                         <input type="date" id="etaInput" value="${job.eta || ''}" style="flex:1;background:var(--surface2);border:1px solid var(--border2);color:var(--text);font-family:'Barlow',sans-serif;font-size:.82rem;padding:.35rem .5rem;outline:none;min-width:0;"/>
                         <button class="btn btn-primary" style="padding:.3rem .6rem;font-size:.65rem;white-space:nowrap;" onclick="MGT.saveEta()">Save</button>
+                        ` : `<div style="font-size:.82rem;padding:.35rem 0;">${job.eta || '—'}</div>`}
                     </div>
                 </div>
                 <div class="info-cell"><div class="info-label">Current Stage</div><div class="info-value" style="color:var(--yellow)">${this.STAGES[Math.min(job.stageIndex, this.STAGES.length-1)].label}</div></div>
@@ -626,6 +650,7 @@ const MGT = {
             <div class="notes-wrap">
                 <div class="section-heading">Updates & Shop Log</div>
                 <div style="background:var(--surface); border:1px solid var(--border); max-height:400px; overflow-y:auto; padding:.75rem; margin-bottom:.75rem;">${updatesHTML}</div>
+                ${mgtData.userRole === 'admin' ? `
                 <div style="background:var(--surface); border:1px solid var(--border); padding:.85rem; margin-top:.5rem;">
                     <div style="font-family:'Barlow Condensed',sans-serif; font-size:.72rem; letter-spacing:.12em; text-transform:uppercase; color:var(--green); margin-bottom:.6rem;">Post Update</div>
                     <textarea id="updateText" rows="3" style="width:100%;background:var(--bg);border:1px solid var(--border2);color:var(--text);padding:.55rem .75rem;font-family:'Barlow',sans-serif;font-size:.85rem;outline:none;resize:vertical;margin-bottom:.6rem;" placeholder="Write an update note..."></textarea>
@@ -639,6 +664,7 @@ const MGT = {
                         <button class="btn btn-primary" id="btnPostUpdate" style="font-size:.78rem;padding:.45rem 1.2rem;" onclick="MGT.postUpdate()">Post Update</button>
                     </div>
                 </div>
+                ` : ''}
             </div>
         </div>`;
     },

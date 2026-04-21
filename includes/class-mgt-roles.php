@@ -19,6 +19,14 @@ class MGT_Roles {
 		);
 
 		add_role(
+			'geartech',
+			'Geartech',
+			array(
+				'read' => true,
+			)
+		);
+
+		add_role(
 			'shop_manager',
 			'Shop Manager',
 			array(

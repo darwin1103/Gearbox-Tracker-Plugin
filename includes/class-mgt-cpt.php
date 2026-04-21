@@ -33,6 +33,12 @@ class MGT_CPT {
 		$wo_id = get_post_meta( $post->ID, '_wo_id', true );
 		$customer = get_post_meta( $post->ID, '_customer', true );
 		$tech = get_post_meta( $post->ID, '_tech', true );
+		$tech_id = get_post_meta( $post->ID, '_tech_id', true );
+		if ( $tech_id ) {
+			$tech_str = esc_attr( $tech ) . ' (User ID: ' . esc_attr( $tech_id ) . ')';
+		} else {
+			$tech_str = esc_attr( $tech );
+		}
 		$priority = get_post_meta( $post->ID, '_priority', true );
 		$date_in = get_post_meta( $post->ID, '_date_in', true );
 		$eta = get_post_meta( $post->ID, '_eta', true );
@@ -45,7 +51,7 @@ class MGT_CPT {
 		echo '<div style="display:grid; grid-template-columns: 1fr 1fr; gap: 15px;">';
 		echo '<p><strong>WO ID:</strong><br><input type="text" value="' . esc_attr( $wo_id ) . '" readonly style="width:100%; background:#f0f0f1; border:1px solid #ccd0d4; padding:5px;"/></p>';
 		echo '<p><strong>Customer:</strong><br><input type="text" value="' . esc_attr( $customer ) . '" readonly style="width:100%; background:#f0f0f1; border:1px solid #ccd0d4; padding:5px;"/></p>';
-		echo '<p><strong>Assigned Tech:</strong><br><input type="text" value="' . esc_attr( $tech ) . '" readonly style="width:100%; background:#f0f0f1; border:1px solid #ccd0d4; padding:5px;"/></p>';
+		echo '<p><strong>Assigned Tech:</strong><br><input type="text" value="' . $tech_str . '" readonly style="width:100%; background:#f0f0f1; border:1px solid #ccd0d4; padding:5px;"/></p>';
 		echo '<p><strong>Priority:</strong><br><input type="text" value="' . esc_attr( $priority ) . '" readonly style="width:100%; background:#f0f0f1; border:1px solid #ccd0d4; padding:5px;"/></p>';
 		echo '<p><strong>Date In:</strong><br><input type="text" value="' . esc_attr( $date_in ) . '" readonly style="width:100%; background:#f0f0f1; border:1px solid #ccd0d4; padding:5px;"/></p>';
 		echo '<p><strong>ETA:</strong><br><input type="text" value="' . esc_attr( $eta ) . '" readonly style="width:100%; background:#f0f0f1; border:1px solid #ccd0d4; padding:5px;"/></p>';
