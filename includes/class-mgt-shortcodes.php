@@ -16,12 +16,14 @@ class MGT_Shortcodes {
 		global $post;
 		if ( is_a( $post, 'WP_Post' ) && has_shortcode( $post->post_content, 'gearbox_portal' ) ) {
 			wp_enqueue_style( 'google-fonts-barlow', 'https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600;700&family=Barlow:wght@300;400;500&display=swap', array(), null );
-			wp_enqueue_style( 'mgt-style', MGT_PLUGIN_URL . 'assets/css/style.css', array(), MGT_VERSION );
+			$css_version = file_exists( MGT_PLUGIN_DIR . 'assets/css/style.css' ) ? filemtime( MGT_PLUGIN_DIR . 'assets/css/style.css' ) : MGT_VERSION;
+			wp_enqueue_style( 'mgt-style', MGT_PLUGIN_URL . 'assets/css/style.css', array(), $css_version );
 			
 			// Load Chart.js for reports
 			wp_enqueue_script( 'chart-js', 'https://cdn.jsdelivr.net/npm/chart.js', array(), null, true );
 			
-			wp_enqueue_script( 'mgt-app', MGT_PLUGIN_URL . 'assets/js/app.js', array( 'jquery', 'chart-js' ), MGT_VERSION, true );
+			$js_version = file_exists( MGT_PLUGIN_DIR . 'assets/js/app.js' ) ? filemtime( MGT_PLUGIN_DIR . 'assets/js/app.js' ) : MGT_VERSION;
+			wp_enqueue_script( 'mgt-app', MGT_PLUGIN_URL . 'assets/js/app.js', array( 'jquery', 'chart-js' ), $js_version, true );
 			
 			// Pass data to JS
 			$user = wp_get_current_user();
