@@ -243,7 +243,7 @@ const MGT = {
                     </div>
                     <div class="form-row">
                         <div class="form-group"><label class="form-label">Date In</label><input class="form-input" id="f-date" type="date"/></div>
-                        <div class="form-group"><label class="form-label">Est. Completion</label><input class="form-input" id="f-eta" type="date"/></div>
+                        <div class="form-group"><label class="form-label">Est. Completion <span style="color:var(--muted);font-size:.6rem;">(optional)</span></label><input class="form-input" id="f-eta" type="date"/></div>
                     </div>
                     <div class="form-row full"><div class="form-group"><label class="form-label">Failure Description</label><input class="form-input" id="f-failure" placeholder="e.g. Bearing failure, excessive vibration"/></div></div>
                     <div class="form-row full">
@@ -550,7 +550,7 @@ const MGT = {
         const failure = document.getElementById('f-failure').value.trim();
         const linkedCustomerId = document.getElementById('f-customer-id') ? parseInt(document.getElementById('f-customer-id').value) || null : null;
 
-        if (!id || !desc || !tech_id || !priority || !dateIn || !eta) {
+        if (!id || !desc || !tech_id || !priority || !dateIn) {
             this.showToast('error', 'Required Fields', 'Please fill in all required fields to create a work order.');
             return;
         }
@@ -767,12 +767,16 @@ const MGT = {
             });
         }
 
+        if (i >= this.STAGES.length - 1) {
+            job.archived = true;
+        }
+
         this.syncToList(job.db_id);
         this.renderSidebar();
         this.updateStats();
         this.renderDetail();
 
-        await this.api(`jobs/${job.db_id}`, 'PUT', { stageIndex: i, checklist: job.checklist });
+        await this.api(`jobs/${job.db_id}`, 'PUT', { stageIndex: i, checklist: job.checklist, archived: job.archived });
         this.showToast('info', 'Stage Updated', `Moved to ${this.STAGES[i].label}`);
     },
 
