@@ -118,15 +118,16 @@ const MGT = {
                             <span class="sidebar-label">Work Orders</span>
                             ${mgtData.userRole === 'admin' ? `<button class="btn-add" onclick="MGT.openNewJobModal()">+ New Job</button>` : ''}
                         </div>
+                        <div style="display:flex; border-bottom:1px solid var(--border); margin:0 1.25rem 1rem 1.25rem;">
+                            <button id="tabActiveOrders" onclick="MGT.setArchiveTab(false)" style="flex:1; padding:.5rem 0; background:none; border:none; color:var(--text); cursor:pointer; font-weight:bold; border-bottom:2px solid var(--green); outline:none;">Active</button>
+                            <button id="tabArchivedOrders" onclick="MGT.setArchiveTab(true)" style="flex:1; padding:.5rem 0; background:none; border:none; color:var(--muted); cursor:pointer; font-weight:normal; border-bottom:2px solid transparent; outline:none;">Archived</button>
+                        </div>
                         <div class="sidebar-filters">
                             <input type="text" class="sidebar-search" id="sidebarSearch" placeholder="Search WO, description, customer..." oninput="MGT.sidebarSearch=this.value;MGT.renderSidebar()"/>
                             <select class="sidebar-stage-filter" id="sidebarStageFilter" onchange="MGT.sidebarFilter=this.value;MGT.renderSidebar()">
                                 <option value="all">All Stages</option>
                                 ${this.STAGES.map(s => `<option value="${s.key}">${s.label}</option>`).join('')}
                             </select>
-                            <div class="sidebar-toggle-row">
-                                <label><input type="checkbox" id="sidebarShowArchived" onchange="MGT.showArchived=this.checked;MGT.renderSidebar()" style="accent-color:var(--green);"/> Show Archived</label>
-                            </div>
                         </div>
                         <div class="job-list" id="jobList"></div>
                     </aside>
@@ -443,6 +444,30 @@ const MGT = {
         }, 4000);
     },
 
+    setArchiveTab(isArchived) {
+        this.showArchived = isArchived;
+        const tabActive = document.getElementById('tabActiveOrders');
+        const tabArchived = document.getElementById('tabArchivedOrders');
+        if (tabActive && tabArchived) {
+            if (isArchived) {
+                tabArchived.style.fontWeight = 'bold';
+                tabArchived.style.borderBottom = '2px solid var(--green)';
+                tabArchived.style.color = 'var(--text)';
+                tabActive.style.fontWeight = 'normal';
+                tabActive.style.borderBottom = '2px solid transparent';
+                tabActive.style.color = 'var(--muted)';
+            } else {
+                tabActive.style.fontWeight = 'bold';
+                tabActive.style.borderBottom = '2px solid var(--green)';
+                tabActive.style.color = 'var(--text)';
+                tabArchived.style.fontWeight = 'normal';
+                tabArchived.style.borderBottom = '2px solid transparent';
+                tabArchived.style.color = 'var(--muted)';
+            }
+        }
+        this.renderSidebar();
+    },
+
     // ── JOBS UI ──
     renderSidebar() {
         const list = document.getElementById('jobList');
@@ -453,6 +478,8 @@ const MGT = {
         let filtered = this.jobs;
         if (!this.showArchived) {
             filtered = filtered.filter(j => !j.archived);
+        } else {
+            filtered = filtered.filter(j => j.archived);
         }
         if (this.sidebarFilter !== 'all') {
             const stageIdx = this.STAGES.findIndex(s => s.key === this.sidebarFilter);
