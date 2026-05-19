@@ -38,6 +38,7 @@ class MGT_Shortcodes {
 			wp_localize_script( 'mgt-app', 'mgtData', array(
 				'restUrl'         => esc_url_raw( rest_url( 'gearbox/v1/' ) ),
 				'nonce'           => wp_create_nonce( 'wp_rest' ),
+				'userId'          => $user->ID,
 				'userEmail'       => $user->user_email,
 				'userName'        => $user->display_name,
 				'userRole'        => $role,

@@ -147,12 +147,7 @@ class MGT_API {
 
 		if ( ! $is_admin ) {
 			if ( current_user_can( 'geartech' ) ) {
-				$args['meta_query'] = array(
-					array(
-						'key'   => '_tech_id',
-						'value' => $user_id,
-					),
-				);
+				// Geartechs can view all jobs
 			} else {
 				$linked_jobs = get_user_meta( $user_id, '_linked_jobs', true );
 				if ( empty( $linked_jobs ) ) {
@@ -190,10 +185,7 @@ class MGT_API {
 		if ( ! self::check_admin_permission() ) {
 			$user_id = get_current_user_id();
 			if ( current_user_can( 'geartech' ) ) {
-				$tech_id = get_post_meta( $post_id, '_tech_id', true );
-				if ( (int) $tech_id !== $user_id ) {
-					return new WP_Error( 'forbidden', 'Access denied', array( 'status' => 403 ) );
-				}
+				// Geartechs can view any job
 			} else {
 				$linked_jobs = get_user_meta( $user_id, '_linked_jobs', true );
 				if ( empty( $linked_jobs ) || ! in_array( $post_id, array_map( 'intval', (array) $linked_jobs ), true ) ) {

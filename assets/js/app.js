@@ -500,8 +500,9 @@ const MGT = {
             const pct = j.progress || 0;
             const stageName = this.STAGES[Math.min(j.stageIndex, this.STAGES.length-1)].label;
             const archivedBadge = j.archived ? '<span class="badge-archived">Archived</span>' : '';
+            const assignedBadge = (mgtData.userRole === 'geartech' && j.tech_id === mgtData.userId.toString()) ? '<span style="font-size:0.6rem; padding:0.1rem 0.3rem; background:var(--blue); color:#fff; border-radius:3px; margin-left:5px; font-weight:600;">ASSIGNED TO YOU</span>' : '';
             return `<div class="job-item ${j.db_id === this.activeJobId ? 'active' : ''} ${j.archived ? 'archived' : ''}" onclick="MGT.selectJob(${j.db_id})">
-                <div class="job-item-top"><div class="job-id">${this.esc(j.id)}</div><div class="status-badge ${this.badgeClass(j)}">${stageName}</div>${archivedBadge}</div>
+                <div class="job-item-top"><div class="job-id">${this.esc(j.id)}${assignedBadge}</div><div class="status-badge ${this.badgeClass(j)}">${stageName}</div>${archivedBadge}</div>
                 <div class="job-desc">${this.esc(j.desc)}</div>
                 <div class="job-progress-bar"><div class="job-progress-fill" style="width:${pct}%"></div></div>
             </div>`;
