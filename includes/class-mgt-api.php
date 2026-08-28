@@ -212,16 +212,23 @@ class MGT_API {
 
 		// Use manual WO number provided by admin
 		$wo_id = isset( $params['wo_id'] ) ? sanitize_text_field( $params['wo_id'] ) : '';
-		
-		$tech_id = isset( $params['tech_id'] ) ? sanitize_text_field( $params['tech_id'] ) : '';
-		$tech_name = sanitize_text_field( $params['tech'] ?? '' );
-		if ( $tech_id ) {
-			$user = get_userdata( $tech_id );
-			if ( $user ) $tech_name = $user->display_name;
+
+		// Support multiple techs via tech_ids array
+		$tech_ids = isset( $params['tech_ids'] ) && is_array( $params['tech_ids'] )
+			? array_map( 'intval', $params['tech_ids'] )
+			: ( isset( $params['tech_id'] ) && $params['tech_id'] ? array( (int) $params['tech_id'] ) : array() );
+
+		$tech_names = array();
+		foreach ( $tech_ids as $tid ) {
+			$u = get_userdata( $tid );
+			if ( $u ) $tech_names[] = $u->display_name;
 		}
+		$tech_name      = implode( ', ', $tech_names );
+		$primary_tech_id = ! empty( $tech_ids ) ? $tech_ids[0] : '';
 
 		update_post_meta( $post_id, '_wo_id', $wo_id );
-		update_post_meta( $post_id, '_tech_id', $tech_id );
+		update_post_meta( $post_id, '_tech_ids', $tech_ids );
+		update_post_meta( $post_id, '_tech_id', $primary_tech_id );
 		update_post_meta( $post_id, '_tech', $tech_name );
 		update_post_meta( $post_id, '_priority', sanitize_text_field( $params['priority'] ) );
 		update_post_meta( $post_id, '_date_in', sanitize_text_field( $params['dateIn'] ) );
@@ -247,13 +254,6 @@ class MGT_API {
 		$post_id = $request['id'];
 		$params = $request->get_json_params();
 
-		if ( current_user_can( 'geartech' ) && ! self::check_admin_permission() ) {
-			$tech_id = get_post_meta( $post_id, '_tech_id', true );
-			if ( (int) $tech_id !== get_current_user_id() ) {
-				return new WP_Error( 'forbidden', 'Access denied', array( 'status' => 403 ) );
-			}
-		}
-
 		if ( isset( $params['desc'] ) ) {
 			if ( ! current_user_can( 'geartech' ) || self::check_admin_permission() ) {
 				wp_update_post( array(
@@ -278,10 +278,23 @@ class MGT_API {
 			}
 		}
 
-		if ( isset( $params['tech_id'] ) ) {
+		if ( isset( $params['tech_ids'] ) ) {
+			if ( ! current_user_can( 'geartech' ) || self::check_admin_permission() ) {
+				$tech_ids = array_map( 'intval', (array) $params['tech_ids'] );
+				update_post_meta( $post_id, '_tech_ids', $tech_ids );
+				$tech_names = array();
+				foreach ( $tech_ids as $tid ) {
+					$u = get_userdata( $tid );
+					if ( $u ) $tech_names[] = $u->display_name;
+				}
+				update_post_meta( $post_id, '_tech', implode( ', ', $tech_names ) );
+				update_post_meta( $post_id, '_tech_id', ! empty( $tech_ids ) ? $tech_ids[0] : '' );
+			}
+		} elseif ( isset( $params['tech_id'] ) ) {
 			if ( ! current_user_can( 'geartech' ) || self::check_admin_permission() ) {
 				$tech_id = sanitize_text_field( $params['tech_id'] );
 				update_post_meta( $post_id, '_tech_id', $tech_id );
+				update_post_meta( $post_id, '_tech_ids', $tech_id ? array( (int) $tech_id ) : array() );
 				$user = get_userdata( $tech_id );
 				if ( $user ) {
 					update_post_meta( $post_id, '_tech', $user->display_name );
@@ -304,9 +317,8 @@ class MGT_API {
 			update_post_meta( $post_id, '_checklist', wp_json_encode( $params['checklist'] ) );
 		}
 		if ( isset( $params['notes'] ) ) {
-			if ( ! current_user_can( 'geartech' ) || self::check_admin_permission() ) {
-				update_post_meta( $post_id, '_notes', wp_json_encode( $params['notes'] ) );
-			}
+			// Both admins and geartechs can save notes
+			update_post_meta( $post_id, '_notes', wp_json_encode( $params['notes'] ) );
 		}
 		if ( isset( $params['linkedCustomers'] ) && is_array( $params['linkedCustomers'] ) ) {
 			if ( ! current_user_can( 'geartech' ) || self::check_admin_permission() ) {
@@ -747,12 +759,21 @@ class MGT_API {
 		$linked_customers = get_post_meta( $post_id, '_linked_customers', true );
 		if ( ! is_array( $linked_customers ) ) $linked_customers = array();
 
+		// Support legacy single tech_id and new multi-tech tech_ids
+		$tech_ids_raw = get_post_meta( $post_id, '_tech_ids', true );
+		if ( empty( $tech_ids_raw ) ) {
+			$legacy_tid   = get_post_meta( $post_id, '_tech_id', true );
+			$tech_ids_raw = $legacy_tid ? array( (int) $legacy_tid ) : array();
+		}
+		if ( ! is_array( $tech_ids_raw ) ) $tech_ids_raw = array();
+
 		return array(
 			'db_id'           => $post_id,
 			'id'              => get_post_meta( $post_id, '_wo_id', true ),
 			'desc'            => $post->post_title,
 			'tech'            => get_post_meta( $post_id, '_tech', true ),
 			'tech_id'         => get_post_meta( $post_id, '_tech_id', true ),
+			'tech_ids'        => array_map( 'intval', $tech_ids_raw ),
 			'priority'        => get_post_meta( $post_id, '_priority', true ),
 			'dateIn'          => get_post_meta( $post_id, '_date_in', true ),
 			'eta'             => get_post_meta( $post_id, '_eta', true ),
@@ -793,12 +814,21 @@ class MGT_API {
 		$linked_customers = get_post_meta( $post_id, '_linked_customers', true );
 		if ( ! is_array( $linked_customers ) ) $linked_customers = array();
 
+		// Support legacy single tech_id and new multi-tech tech_ids
+		$tech_ids_raw = get_post_meta( $post_id, '_tech_ids', true );
+		if ( empty( $tech_ids_raw ) ) {
+			$legacy_tid   = get_post_meta( $post_id, '_tech_id', true );
+			$tech_ids_raw = $legacy_tid ? array( (int) $legacy_tid ) : array();
+		}
+		if ( ! is_array( $tech_ids_raw ) ) $tech_ids_raw = array();
+
 		return array(
 			'db_id'           => $post_id,
 			'id'              => get_post_meta( $post_id, '_wo_id', true ),
 			'desc'            => $post->post_title,
 			'tech'            => get_post_meta( $post_id, '_tech', true ),
 			'tech_id'         => get_post_meta( $post_id, '_tech_id', true ),
+			'tech_ids'        => array_map( 'intval', $tech_ids_raw ),
 			'priority'        => get_post_meta( $post_id, '_priority', true ),
 			'dateIn'          => get_post_meta( $post_id, '_date_in', true ),
 			'eta'             => get_post_meta( $post_id, '_eta', true ),

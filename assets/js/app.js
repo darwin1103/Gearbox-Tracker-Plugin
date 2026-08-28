@@ -240,7 +240,9 @@ const MGT = {
                     </div>
                     <div class="form-row full"><div class="form-group"><label class="form-label">Gearbox Description</label><input class="form-input" id="f-desc" placeholder="e.g. Flender H3SH helical, 250kW"/></div></div>
                     <div class="form-row full">
-                        <div class="form-group"><label class="form-label">Assigned Tech</label><select class="form-select" id="f-tech"></select></div>
+                        <div class="form-group"><label class="form-label">Assigned Techs <span style="color:var(--muted);font-size:.6rem;">(select one or more)</span></label>
+                        <div id="f-tech-checkboxes" style="background:var(--bg);border:1px solid var(--border2);padding:.6rem;max-height:140px;overflow-y:auto;display:flex;flex-direction:column;gap:.4rem;"></div>
+                        </div>
                     </div>
                     <div class="form-row">
                         <div class="form-group"><label class="form-label">Date In</label><input class="form-input" id="f-date" type="date"/></div>
@@ -423,12 +425,17 @@ const MGT = {
     async openNewJobModal() {
         this.openModal('newJobModal');
         const idInput = document.getElementById('f-id');
-        if (idInput) {
-            idInput.value = '';
-        }
-        const techSelect = document.getElementById('f-tech');
-        if (techSelect) {
-            techSelect.innerHTML = '<option value="">Select Tech...</option>' + this.techs.map(t => `<option value="${t.id}">${this.esc(t.name)}</option>`).join('');
+        if (idInput) idInput.value = '';
+
+        const checkboxContainer = document.getElementById('f-tech-checkboxes');
+        if (checkboxContainer) {
+            checkboxContainer.innerHTML = this.techs.length === 0
+                ? '<span style="color:var(--muted);font-size:.78rem;">No techs available</span>'
+                : this.techs.map(t => `
+                    <label style="display:flex;align-items:center;gap:.5rem;font-size:.82rem;cursor:pointer;">
+                        <input type="checkbox" name="f-tech-cb" value="${t.id}" style="accent-color:var(--green);"/>
+                        ${this.esc(t.name)}
+                    </label>`).join('');
         }
     },
     closeModal(id) { document.getElementById(id).classList.remove('open'); },
@@ -500,7 +507,7 @@ const MGT = {
             const pct = j.progress || 0;
             const stageName = this.STAGES[Math.min(j.stageIndex, this.STAGES.length-1)].label;
             const archivedBadge = j.archived ? '<span class="badge-archived">Archived</span>' : '';
-            const assignedBadge = (mgtData.userRole === 'geartech' && j.tech_id === mgtData.userId.toString()) ? '<span style="font-size:0.6rem; padding:0.1rem 0.3rem; background:var(--blue); color:#fff; border-radius:3px; margin-left:5px; font-weight:600;">ASSIGNED TO YOU</span>' : '';
+            const assignedBadge = (mgtData.userRole === 'geartech' && (j.tech_ids||[]).includes(parseInt(mgtData.userId))) ? '<span style="font-size:0.6rem; padding:0.1rem 0.3rem; background:var(--blue); color:#fff; border-radius:3px; margin-left:5px; font-weight:600;">ASSIGNED TO YOU</span>' : '';
             return `<div class="job-item ${j.db_id === this.activeJobId ? 'active' : ''} ${j.archived ? 'archived' : ''}" onclick="MGT.selectJob(${j.db_id})">
                 <div class="job-item-top"><div class="job-id">${this.esc(j.id)}${assignedBadge}</div><div class="status-badge ${this.badgeClass(j)}">${stageName}</div>${archivedBadge}</div>
                 <div class="job-desc">${this.esc(j.desc)}</div>
@@ -564,21 +571,24 @@ const MGT = {
         listJob.failure = detail.failure;
         listJob.linkedCustomers = detail.linkedCustomers;
         listJob.archived = detail.archived;
+        listJob.tech = detail.tech;
+        listJob.tech_id = detail.tech_id;
+        listJob.tech_ids = detail.tech_ids;
     },
 
     async createJob() {
         const id = document.getElementById('f-id').value.trim();
         const desc = document.getElementById('f-desc').value.trim();
-        const techSelect = document.getElementById('f-tech');
-        const tech_id = techSelect.value;
-        const tech = techSelect.options[techSelect.selectedIndex]?.text || '';
+        // Read selected tech IDs from checkboxes
+        const techCheckboxes = document.querySelectorAll('input[name="f-tech-cb"]:checked');
+        const tech_ids = Array.from(techCheckboxes).map(cb => parseInt(cb.value));
         const priority = document.getElementById('f-priority').value;
         const dateIn = document.getElementById('f-date').value;
         const eta = document.getElementById('f-eta').value;
         const failure = document.getElementById('f-failure').value.trim();
         const linkedCustomerId = document.getElementById('f-customer-id') ? parseInt(document.getElementById('f-customer-id').value) || null : null;
 
-        if (!id || !desc || !tech_id || !priority || !dateIn) {
+        if (!id || !desc || !priority || !dateIn) {
             this.showToast('error', 'Required Fields', 'Please fill in all required fields to create a work order.');
             return;
         }
@@ -589,7 +599,7 @@ const MGT = {
         }));
         
         const payload = {
-            wo_id: id, desc, tech_id, tech, priority, dateIn, eta, failure, checklist,
+            wo_id: id, desc, tech_ids, priority, dateIn, eta, failure, checklist,
             linkedCustomers: linkedCustomerId ? [linkedCustomerId] : []
         };
 
@@ -704,10 +714,13 @@ const MGT = {
                     <div class="detail-title">${this.esc(job.desc)}</div>
                     <div style="margin-top:.5rem;font-size:.8rem;color:var(--muted)">
                         ${mgtData.userRole === 'admin' && this.techs ? `
-                            <select onchange="MGT.updateJobField('tech_id', this.value)" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:.85rem;padding:.1rem .3rem;outline:none;border-radius:3px;cursor:pointer;">
-                                <option value="">Unassigned Tech</option>
-                                ${this.techs.map(t => `<option value="${t.id}" ${job.tech_id === t.id.toString() ? 'selected' : ''}>${this.esc(t.name)}</option>`).join('')}
-                            </select>
+                            <div style="display:flex;flex-wrap:wrap;gap:.3rem;align-items:center;">
+                                ${this.techs.map(t => `
+                                    <label style="display:inline-flex;align-items:center;gap:.3rem;font-size:.78rem;cursor:pointer;padding:.15rem .4rem;background:var(--surface2);border:1px solid ${(job.tech_ids||[]).includes(t.id) ? 'var(--green)' : 'var(--border)'};border-radius:3px;">
+                                        <input type="checkbox" ${(job.tech_ids||[]).includes(t.id) ? 'checked' : ''} onchange="MGT.updateJobTechs(${t.id}, this.checked)" style="accent-color:var(--green);"/>
+                                        ${this.esc(t.name)}
+                                    </label>`).join('')}
+                            </div>
                         ` : (job.tech ? `Tech: ${this.esc(job.tech)}` : 'Unassigned')}
                         &middot; Progress: <strong style="color:var(--green)">${pct}%</strong>
                     </div>
@@ -756,7 +769,7 @@ const MGT = {
             <div class="notes-wrap">
                 <div class="section-heading">Updates & Shop Log</div>
                 <div style="background:var(--surface); border:1px solid var(--border); max-height:400px; overflow-y:auto; padding:.75rem; margin-bottom:.75rem;">${updatesHTML}</div>
-                ${mgtData.userRole === 'admin' ? `
+                ${(mgtData.userRole === 'admin' || mgtData.userRole === 'geartech') ? `
                 <div style="background:var(--surface); border:1px solid var(--border); padding:.85rem; margin-top:.5rem;">
                     <div style="font-family:'Barlow Condensed',sans-serif; font-size:.72rem; letter-spacing:.12em; text-transform:uppercase; color:var(--green); margin-bottom:.6rem;">Post Update</div>
                     <textarea id="updateText" rows="3" style="width:100%;background:var(--bg);border:1px solid var(--border2);color:var(--text);padding:.55rem .75rem;font-family:'Barlow',sans-serif;font-size:.85rem;outline:none;resize:vertical;margin-bottom:.6rem;" placeholder="Write an update note..."></textarea>
@@ -814,6 +827,24 @@ const MGT = {
         job[field] = value.trim();
         this.syncToList(job.db_id);
         await this.api(`jobs/${job.db_id}`, 'PUT', { [field]: job[field] });
+    },
+
+    async updateJobTechs(techId, isChecked) {
+        const job = this.getActiveJob();
+        if (!job) return;
+        let ids = Array.isArray(job.tech_ids) ? [...job.tech_ids] : [];
+        if (isChecked) {
+            if (!ids.includes(techId)) ids.push(techId);
+        } else {
+            ids = ids.filter(id => id !== techId);
+        }
+        job.tech_ids = ids;
+        // Update display name(s)
+        const names = ids.map(id => { const t = this.techs.find(x => x.id === id); return t ? t.name : ''; }).filter(Boolean);
+        job.tech = names.join(', ');
+        job.tech_id = ids.length > 0 ? ids[0].toString() : '';
+        this.syncToList(job.db_id);
+        await this.api(`jobs/${job.db_id}`, 'PUT', { tech_ids: ids });
     },
 
     async saveEta() {
